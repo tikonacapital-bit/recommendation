@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>AlphaLens — Multi-Agent Equity Research</title>
+    <meta name="description" content="AI-powered multi-agent equity research platform for Indian markets. Automated scoring, thesis generation, and investment analysis for 800+ NSE/BSE stocks." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+
+    <!-- ── Animated background ─────────────────────────────────────────── -->
+    <div class="bg-grid" aria-hidden="true"></div>
+    <div class="bg-orb orb-1" aria-hidden="true"></div>
+    <div class="bg-orb orb-2" aria-hidden="true"></div>
+    <div class="bg-orb orb-3" aria-hidden="true"></div>
+
+    <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline><polyline points="16 7 22 7 22 13"></polyline></svg>
+        </div>
+        <span class="brand-name">AlphaLens</span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <button class="nav-item active" data-view="dashboard" id="navDashboard">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          Dashboard
+        </button>
+        <button class="nav-item" data-view="universe" id="navUniverse">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+          Universe
+        </button>
+        <button class="nav-item" data-view="analyze" id="navAnalyze">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+          Analyze
+        </button>
+        <button class="nav-item" data-view="pipeline" id="navPipeline">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+          Pipeline
+        </button>
+      </nav>
+
+      <div class="sidebar-status">
+        <div class="status-row">
+          <span class="status-dot" id="dotDB"></span>
+          <span class="status-label">Database</span>
+          <span class="status-val" id="valDB">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-dot" id="dotWorker"></span>
+          <span class="status-label">Worker</span>
+          <span class="status-val" id="valWorker">—</span>
+        </div>
+        <div class="status-row">
+          <span class="status-dot" id="dotLLM"></span>
+          <span class="status-label">LLM</span>
+          <span class="status-val" id="valLLM">—</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Main content ────────────────────────────────────────────────── -->
+    <div class="main-wrap">
+
+      <!-- Top bar -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div class="topbar-search">
+            <svg class="search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input id="tickerInput" class="search-input" placeholder="Search ticker… e.g. TCS.NS" autocomplete="off" spellcheck="false" />
+            <kbd class="search-kbd">⏎</kbd>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button class="btn btn-ghost btn-sm" id="refreshBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            Refresh
+          </button>
+          <button class="btn btn-ghost btn-sm" id="synthesizeBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+            AI Synthesize
+          </button>
+          <button class="btn btn-primary btn-sm" id="runPrefilterBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Run Prefilter
+          </button>
+        </div>
+      </header>
+
+      <!-- Toast notifications -->
+      <div class="toast-container" id="toastContainer"></div>
+
+      <!-- Task pill (when queued) -->
+      <div class="task-banner hidden" id="taskBanner">
+        <div class="task-banner-inner">
+          <div class="spinner-sm"></div>
+          <span>Task queued: </span><code id="taskId"></code>
+          <button class="btn btn-ghost btn-xs" id="checkTaskBtn">Check status</button>
+          <button class="task-close" id="taskClose">×</button>
+        </div>
+      </div>
+
+      <!-- ── VIEW: Dashboard ─────────────────────────────────────────── -->
+      <section class="view active" id="viewDashboard">
+
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Research Dashboard</h1>
+            <p class="page-sub">AI-powered analysis · Indian Equity Universe · NSE/BSE</p>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-ghost btn-sm" id="reloadTopBtn">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+              Reload
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div class="kpi-row" id="kpiRow">
+          <div class="kpi-card shimmer"><div class="kpi-val">—</div><div class="kpi-label">Stocks Tracked</div></div>
+          <div class="kpi-card shimmer"><div class="kpi-val">—</div><div class="kpi-label">Tier 1 Passes</div></div>
+          <div class="kpi-card shimmer"><div class="kpi-val">—</div><div class="kpi-label">Top Score</div></div>
+          <div class="kpi-card shimmer"><div class="kpi-val">—</div><div class="kpi-label">Avg Composite</div></div>
+        </div>
+
+        <!-- Selected stock panel + Top list -->
+        <div class="content-grid">
+
+          <div class="card stock-detail-card" id="stockDetailCard">
+            <div class="card-head">
+              <div class="card-title-group">
+                <h2 class="card-title">Selected Stock</h2>
+                <span class="badge badge-muted" id="selectedBadge">No data</span>
+              </div>
+              <button class="btn btn-ghost btn-xs" id="viewBtn">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                View
+              </button>
+            </div>
+            <div id="stockView" class="empty-state">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+              <p>Search a ticker or click a stock below</p>
+            </div>
+          </div>
+
+          <div class="card top-list-card">
+            <div class="card-head">
+              <div class="card-title-group">
+                <h2 class="card-title">Universe Ranking</h2>
+                <span class="badge badge-blue" id="topCount">0</span>
+              </div>
+              <button class="btn btn-ghost btn-xs" id="topBtn">Load All</button>
+            </div>
+            <div id="topResults" class="empty-state">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+              <p>Click "Load All" to see universe ranking</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ── VIEW: Universe (alias to dashboard top list) ──────────────── -->
+      <section class="view" id="viewUniverse">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Stock Universe</h1>
+            <p class="page-sub">All tracked stocks, sorted by composite score</p>
+          </div>
+          <button class="btn btn-primary btn-sm" id="loadUniverseBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            Load Universe
+          </button>
+        </div>
+        <div class="card">
+          <div id="universeTable" class="empty-state">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+            <p>Click "Load Universe" to fetch all stocks</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW: Analyze ──────────────────────────────────────────────── -->
+      <section class="view" id="viewAnalyze">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Deep Analysis</h1>
+            <p class="page-sub">Run the full 4-agent LangGraph pipeline on any ticker</p>
+          </div>
+        </div>
+        <div class="analyze-grid">
+          <div class="card analyze-input-card">
+            <h3 class="section-title">Run Analysis</h3>
+            <p class="section-sub">Enter a ticker and choose an action. <strong>AI Synthesize</strong> runs all 4 agents via LangGraph.</p>
+            <div class="input-row">
+              <input class="text-input" id="analyzeTickerInput" placeholder="e.g. RELIANCE.NS" />
+              <button class="btn btn-primary" id="analyzeRunBtn">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                AI Synthesize
+              </button>
+              <button class="btn btn-ghost" id="analyzeRefreshBtn">Refresh Data</button>
+              <button class="btn btn-ghost" id="analyzeViewBtn">View Result</button>
+            </div>
+            <div id="analyzeProgress" class="progress-area hidden">
+              <div class="agent-steps">
+                <div class="agent-step" id="stepA"><div class="step-dot"></div><span>Agent A — Fundamentals</span></div>
+                <div class="agent-step" id="stepB"><div class="step-dot"></div><span>Agent B — Sector Specialist</span></div>
+                <div class="agent-step" id="stepC"><div class="step-dot"></div><span>Agent C — Management Sentiment</span></div>
+                <div class="agent-step" id="stepD"><div class="step-dot"></div><span>Agent D — Valuation & Risk</span></div>
+                <div class="agent-step" id="stepSynth"><div class="step-dot"></div><span>Synthesis Agent (Claude Opus)</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="analyzeResultCard">
+            <div id="analyzeResult" class="empty-state">
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path></svg>
+              <p>Analysis results will appear here</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── VIEW: Pipeline ─────────────────────────────────────────────── -->
+      <section class="view" id="viewPipeline">
+        <div class="page-header">
+          <div>
+            <h1 class="page-title">Pipeline Control</h1>
+            <p class="page-sub">Manage the Tier-1 prefilter and Celery task queue</p>
+          </div>
+        </div>
+        <div class="pipeline-grid">
+          <div class="card">
+            <h3 class="section-title">Tier-1 Prefilter</h3>
+            <p class="section-sub">Runs all tracked stocks through deterministic hard filters (revenue growth ≥ 12%, market cap, auditor checks) and scores them.</p>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="prefilterInlineBtn">Run Inline</button>
+              <button class="btn btn-ghost" id="prefilterAsyncBtn">Queue in Celery</button>
+            </div>
+            <div id="prefilterResult" class="result-box hidden"></div>
+          </div>
+          <div class="card">
+            <h3 class="section-title">Task Monitor</h3>
+            <p class="section-sub">Check the status of a queued Celery task by ID.</p>
+            <div class="input-row">
+              <input class="text-input" id="taskMonitorInput" placeholder="Paste task ID…" />
+              <button class="btn btn-ghost" id="taskMonitorBtn">Check</button>
+            </div>
+            <div id="taskMonitorResult" class="result-box hidden"></div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /main-wrap -->
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
