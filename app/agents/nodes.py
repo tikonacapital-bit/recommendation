@@ -24,14 +24,94 @@ from app.services.llm_synthesis import _call_anthropic, _call_openrouter, _provi
 # ─────────────────────────── helpers ─────────────────────────────────────────
 
 def _fetch_financial_snippet(ticker: str) -> dict:
-    """Pull the latest financial model for a ticker from the DB (best-effort)."""
+    """Pull rich financial data for a ticker, preferring equity_universe over FinancialModel."""
+    nse_code = ticker.upper().removesuffix(".NS")
     try:
         from app.core.db import SessionLocal
         from app.models.models import Stock, FinancialModel
-        from sqlalchemy import desc
+        from sqlalchemy import desc, text
 
         db = SessionLocal()
         try:
+            # Try equity_universe first — much richer data
+            row = db.execute(text("""
+                SELECT company_name, sector, market_cap, current_price,
+                       revenue_cagr_hist_2yr, pat_cagr_hist_2yr, eps_cagr_hist_2yr,
+                       roic, roe, roce,
+                       ebitda_margin_fy2025, ebitda_margin_ttm,
+                       pe_ttm, pe_fy2026e, ev_ebitda_ttm, ev_ebitda_fy2026e,
+                       consensus_upside_pct, consensus_target_price,
+                       target_price_high, target_price_low,
+                       return_1m, return_3m, return_6m, return_12m,
+                       net_debt, debt, net_worth, promoter_holding_pct,
+                       revenue_fy2023, revenue_fy2024, revenue_fy2025, revenue_ttm,
+                       ebitda_fy2023, ebitda_fy2024, ebitda_fy2025, ebitda_ttm,
+                       pat_fy2023, pat_fy2024, pat_fy2025, pat_ttm,
+                       eps_fy2023, eps_fy2024, eps_fy2025, eps_ttm
+                FROM equity_universe WHERE nse_code = :code LIMIT 1
+            """), {"code": nse_code}).fetchone()
+
+            if row:
+                def _f(v):
+                    try:
+                        return float(v) if v is not None else None
+                    except (TypeError, ValueError):
+                        return None
+
+                return {
+                    "company": row.company_name,
+                    "sector": row.sector,
+                    "market_cap_cr": _f(row.market_cap),
+                    "current_price": _f(row.current_price),
+                    "growth": {
+                        "revenue_cagr_2yr_pct": _f(row.revenue_cagr_hist_2yr),
+                        "pat_cagr_2yr_pct": _f(row.pat_cagr_hist_2yr),
+                        "eps_cagr_2yr_pct": _f(row.eps_cagr_hist_2yr),
+                        "revenue_trend_cr": {
+                            "FY23": _f(row.revenue_fy2023), "FY24": _f(row.revenue_fy2024),
+                            "FY25": _f(row.revenue_fy2025), "TTM": _f(row.revenue_ttm),
+                        },
+                        "pat_trend_cr": {
+                            "FY23": _f(row.pat_fy2023), "FY24": _f(row.pat_fy2024),
+                            "FY25": _f(row.pat_fy2025), "TTM": _f(row.pat_ttm),
+                        },
+                        "ebitda_trend_cr": {
+                            "FY23": _f(row.ebitda_fy2023), "FY24": _f(row.ebitda_fy2024),
+                            "FY25": _f(row.ebitda_fy2025), "TTM": _f(row.ebitda_ttm),
+                        },
+                    },
+                    "quality": {
+                        "roic_pct": _f(row.roic),
+                        "roe_pct": _f(row.roe),
+                        "roce_pct": _f(row.roce),
+                        "ebitda_margin_fy25_pct": _f(row.ebitda_margin_fy2025),
+                        "ebitda_margin_ttm_pct": _f(row.ebitda_margin_ttm),
+                        "promoter_holding_pct": _f(row.promoter_holding_pct),
+                    },
+                    "valuation": {
+                        "pe_ttm": _f(row.pe_ttm),
+                        "pe_fy26e": _f(row.pe_fy2026e),
+                        "ev_ebitda_ttm": _f(row.ev_ebitda_ttm),
+                        "ev_ebitda_fy26e": _f(row.ev_ebitda_fy2026e),
+                        "consensus_upside_pct": _f(row.consensus_upside_pct),
+                        "consensus_target_price": _f(row.consensus_target_price),
+                        "target_high": _f(row.target_price_high),
+                        "target_low": _f(row.target_price_low),
+                    },
+                    "momentum": {
+                        "ret_1m_pct": _f(row.return_1m),
+                        "ret_3m_pct": _f(row.return_3m),
+                        "ret_6m_pct": _f(row.return_6m),
+                        "ret_12m_pct": _f(row.return_12m),
+                    },
+                    "balance_sheet": {
+                        "net_debt_cr": _f(row.net_debt),
+                        "debt_cr": _f(row.debt),
+                        "net_worth_cr": _f(row.net_worth),
+                    },
+                }
+
+            # Fallback: FinancialModel (yfinance data)
             stock = db.query(Stock).filter(Stock.ticker == ticker).first()
             if not stock:
                 return {}

@@ -170,20 +170,32 @@
         </div>
       </section>
 
-      <!-- ── VIEW: Universe (alias to dashboard top list) ──────────────── -->
+      <!-- ── VIEW: Universe ──────────────────────────────────────────────── -->
       <section class="view" id="viewUniverse">
         <div class="page-header">
           <div>
             <h1 class="page-title">Stock Universe</h1>
-            <p class="page-sub">All tracked stocks, sorted by composite score</p>
+            <p class="page-sub">853 stocks ranked by 5-factor composite score</p>
           </div>
           <button class="btn btn-primary btn-sm" id="loadUniverseBtn">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-            Load Universe
+            Refresh
           </button>
         </div>
-        <div class="card">
-          <div id="universeTable" class="empty-state">
+        <!-- Filters -->
+        <div class="card" style="padding:14px 18px;margin-bottom:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input class="text-input" id="universeSearch" placeholder="Search ticker or name…" style="flex:1;min-width:180px" />
+            <select class="text-input" id="universeSector" style="flex:1;min-width:160px">
+              <option value="">All Sectors</option>
+            </select>
+            <button class="btn btn-primary btn-sm" id="universeFilterBtn">Filter</button>
+            <button class="btn btn-ghost btn-sm" id="universeClearBtn">Clear</button>
+            <span id="universeCount" style="color:var(--text-3);font-size:.8rem;white-space:nowrap"></span>
+          </div>
+        </div>
+        <div class="card" style="padding:0;overflow:hidden">
+          <div id="universeTable" class="empty-state" style="padding:40px">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
             <p>No data yet — go to <strong>Pipeline</strong> and run Step 1 + 2 first</p>
           </div>

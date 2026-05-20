@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import requests
-from sqlalchemy import desc, func, text
+from sqlalchemy import desc, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.core.celery_app import broker_status, celery_app
@@ -89,6 +89,8 @@ def llm_health() -> TaskResponse:
 @app.get("/views/top", response_model=TopResponse)
 def top(
     limit: int = Query(default=10, ge=1, le=1000),
+    sector: str | None = Query(default=None, description="Filter by sector (partial match)"),
+    q: str | None = Query(default=None, description="Search by ticker or company name"),
     db: Session = Depends(get_db),
 ) -> TopResponse:
     latest_per_stock = (
@@ -96,15 +98,37 @@ def top(
         .group_by(StockAnalysis.stock_id)
         .subquery()
     )
-    analyses = (
+    query = (
         db.query(StockAnalysis)
         .join(latest_per_stock, StockAnalysis.id == latest_per_stock.c.analysis_id)
         .join(Stock)
+    )
+    if sector:
+        query = query.filter(Stock.sector.ilike(f"%{sector}%"))
+    if q:
+        query = query.filter(
+            or_(Stock.ticker.ilike(f"%{q}%"), Stock.name.ilike(f"%{q}%"))
+        )
+    analyses = (
+        query
         .order_by(desc(StockAnalysis.composite_score), desc(StockAnalysis.created_at))
         .limit(limit)
         .all()
     )
     return TopResponse(count=len(analyses), results=[_analysis_to_response(item) for item in analyses])
+
+
+@app.get("/universe/sectors")
+def list_sectors(db: Session = Depends(get_db)) -> dict:
+    """Return sorted list of all distinct sectors in the tracked universe."""
+    rows = (
+        db.query(Stock.sector)
+        .filter(Stock.sector.isnot(None), Stock.is_active.is_(True))
+        .distinct()
+        .order_by(Stock.sector)
+        .all()
+    )
+    return {"sectors": [r[0] for r in rows if r[0]]}
 
 
 @app.get("/view/{ticker}", response_model=StockAnalysisResponse)

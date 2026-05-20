@@ -54,6 +54,25 @@ Object.entries(navBtns).forEach(([name, btn]) => btn.addEventListener('click', (
   if (name === 'universe') loadUniverse();
 }));
 
+// Universe filter controls (wired after DOM ready)
+document.addEventListener('DOMContentLoaded', () => {
+  const filterBtn = $('universeFilterBtn');
+  const clearBtn  = $('universeClearBtn');
+  const searchEl  = $('universeSearch');
+  const sectorEl  = $('universeSector');
+
+  if (filterBtn) filterBtn.addEventListener('click', () =>
+    loadUniverse(sectorEl.value, searchEl.value.trim())
+  );
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    searchEl.value = ''; sectorEl.value = '';
+    loadUniverse();
+  });
+  if (searchEl) searchEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadUniverse(sectorEl.value, searchEl.value.trim());
+  });
+});
+
 // ── Sidebar toggle ────────────────────────────────
 $('sidebarToggle').addEventListener('click', () => {
   document.querySelector('.sidebar').classList.toggle('collapsed');
@@ -106,18 +125,50 @@ function renderAnalysis(item) {
   const score = Number(item.composite_score || 0);
   const pct360 = `${(score / 100 * 360).toFixed(1)}deg`;
   const color = scoreColor(score);
-  const prefilter = (item.agent_outputs || {}).prefilter || {};
+  const ao = item.agent_outputs || {};
+  const pf2 = ao.prefilter_v2 || null;
+  const pfLeg = ao.prefilter || {};
   const tp = item.target_prices || {};
 
-  const bars = [
+  // Score bar labels depend on scoring engine
+  const bars = pf2 ? [
+    { label: 'Growth',    val: item.growth_score },
+    { label: 'Quality',   val: item.durability_score },
+    { label: 'Valuation', val: item.valuation_score },
+    { label: 'Momentum',  val: item.technical_score },
+    { label: 'Health',    val: item.sector_score },
+  ] : [
     { label: 'Growth',    val: item.growth_score },
     { label: 'Durability',val: item.durability_score },
     { label: 'Mgmt Qual', val: item.mgmt_quality_score },
     { label: 'Sentiment', val: item.mgmt_sentiment_score },
     { label: 'Valuation', val: item.valuation_score },
     { label: 'Technical', val: item.technical_score },
-    { label: 'Sector',    val: item.sector_score },
-  ].filter(b => b.val !== null && b.val !== undefined);
+  ];
+  const visibleBars = bars.filter(b => b.val !== null && b.val !== undefined);
+
+  // Quant metrics grid (prefilter_v2 only)
+  const quantMetrics = pf2 ? [
+    ['Rev CAGR 2yr', pf2.rev_cagr != null ? `${Number(pf2.rev_cagr).toFixed(1)}%` : '—'],
+    ['PAT CAGR 2yr', pf2.pat_cagr != null ? `${Number(pf2.pat_cagr).toFixed(1)}%` : '—'],
+    ['ROIC',         pf2.roic != null ? `${Number(pf2.roic).toFixed(1)}%` : '—'],
+    ['ROE',          pf2.roe  != null ? `${Number(pf2.roe).toFixed(1)}%` : '—'],
+    ['Fwd PE',       pf2.pe_fwd != null ? `${Number(pf2.pe_fwd).toFixed(1)}x` : (pf2.pe_ttm != null ? `${Number(pf2.pe_ttm).toFixed(1)}x (TTM)` : '—')],
+    ['EV/EBITDA Fwd',pf2.ev_ebitda_fwd != null ? `${Number(pf2.ev_ebitda_fwd).toFixed(1)}x` : '—'],
+    ['Consensus ↑',  pf2.consensus_upside != null ? `${Number(pf2.consensus_upside).toFixed(0)}%` : '—'],
+    ['EBITDA Margin',pf2.ebitda_margin_fy25 != null ? `${Number(pf2.ebitda_margin_fy25).toFixed(1)}%` : '—'],
+    ['3m Return',    pf2.ret_3m != null ? `${Number(pf2.ret_3m).toFixed(1)}%` : '—'],
+    ['6m Return',    pf2.ret_6m != null ? `${Number(pf2.ret_6m).toFixed(1)}%` : '—'],
+    ['Net Leverage', pf2.net_leverage != null ? `${Number(pf2.net_leverage).toFixed(2)}x` : '—'],
+    ['Promoter %',   pf2.promoter_pct != null ? `${Number(pf2.promoter_pct).toFixed(1)}%` : '—'],
+  ] : Object.keys(pfLeg).length ? [
+    ['Rev Growth', pct(pfLeg.revenue_growth)],
+    ['ROE', pct(pfLeg.roe)],
+    ['Debt/Equity', val(pfLeg.debt_to_equity)],
+    ['P/E', val(pfLeg.pe)],
+    ['P/B', val(pfLeg.price_to_book)],
+    ['Issues', pfLeg.hard_filter_failures?.join(', ') || 'None'],
+  ] : [];
 
   return `
   <div class="analysis-wrap">
@@ -128,20 +179,20 @@ function renderAnalysis(item) {
       <div class="analysis-meta">
         <div class="analysis-name">${val(item.name)}</div>
         <div class="analysis-ticker">${val(item.ticker)} ${recBadge(item.recommendation)}</div>
-        <div class="analysis-sector">${val(item.sector)} · Tier ${val(item.tier_reached)} · Confidence ${item.confidence_score != null ? (item.confidence_score * 100).toFixed(0) + '%' : '—'}</div>
+        <div class="analysis-sector">${val(item.sector)} · Rank #${item.rank_in_universe ?? '—'} · Confidence ${item.confidence_score != null ? (item.confidence_score * 100).toFixed(0) + '%' : '—'}</div>
       </div>
     </div>
 
     ${item.thesis_paragraph ? `
     <div>
-      <div class="analysis-row-label">Investment Thesis</div>
+      <div class="analysis-row-label">Snapshot</div>
       <div class="thesis-text">${item.thesis_paragraph}</div>
     </div>` : ''}
 
-    ${bars.length ? `
+    ${visibleBars.length ? `
     <div>
-      <div class="analysis-row-label">Score Breakdown</div>
-      <div class="score-bars">${bars.map(b => `
+      <div class="analysis-row-label">Score Breakdown${pf2 ? ' <span style="font-size:.7rem;color:var(--text-3);font-weight:400">(percentile-ranked within universe/sector)</span>' : ''}</div>
+      <div class="score-bars">${visibleBars.map(b => `
         <div class="score-bar-row">
           <div class="score-bar-label">${b.label}</div>
           <div class="score-bar-track"><div class="score-bar-fill" style="width:${Math.min(100, b.val||0)}%;background:${scoreColor(b.val)}"></div></div>
@@ -162,21 +213,21 @@ function renderAnalysis(item) {
 
     ${(item.key_risks || []).length ? `
     <div>
-      <div class="analysis-row-label">Key Risks</div>
-      <div class="tag-list">${(item.key_risks || []).map(r => `<span class="tag tag-risk">${r}</span>`).join('')}</div>
+      <div class="analysis-row-label">Risks</div>
+      <div class="tag-list">${(item.key_risks || []).map(r => `<span class="tag tag-risk">${r.replace(/_/g,' ')}</span>`).join('')}</div>
     </div>` : ''}
 
     ${(item.key_catalysts || []).length ? `
     <div>
       <div class="analysis-row-label">Catalysts</div>
-      <div class="tag-list">${(item.key_catalysts || []).map(c => `<span class="tag tag-catalyst">${c}</span>`).join('')}</div>
+      <div class="tag-list">${(item.key_catalysts || []).map(c => `<span class="tag tag-catalyst">${c.replace(/_/g,' ')}</span>`).join('')}</div>
     </div>` : ''}
 
-    ${Object.keys(prefilter).length ? `
+    ${quantMetrics.length ? `
     <div>
-      <div class="analysis-row-label">Prefilter Data</div>
+      <div class="analysis-row-label">Quantitative Data</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px">
-        ${[['Revenue Growth', pct(prefilter.revenue_growth)],['ROE', pct(prefilter.roe)],['Debt/Equity', val(prefilter.debt_to_equity)],['P/E', val(prefilter.pe)],['P/B', val(prefilter.price_to_book)],['Failures', prefilter.hard_filter_failures?.join(', ') || 'None']].map(([l, v2]) =>
+        ${quantMetrics.map(([l, v2]) =>
           `<div style="padding:8px;background:rgba(255,255,255,.03);border-radius:6px;border:1px solid var(--border)">
             <div style="font-size:.68rem;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">${l}</div>
             <div style="font-size:.83rem;font-weight:600">${v2}</div>
@@ -208,24 +259,36 @@ function renderTopList(results) {
 
 // ── Universe table ────────────────────────────────
 function renderUniverseTable(results) {
-  if (!results.length) return '<div class="empty-state"><p>No stocks found.</p></div>';
-  return `<table class="universe-table">
+  if (!results.length) return '<div class="empty-state" style="padding:40px"><p>No stocks found.</p></div>';
+  // Detect v2 scoring by checking first result
+  const isV2 = results.some(i => (i.agent_outputs || {}).prefilter_v2);
+  const q2Label = isV2 ? 'Quality' : 'Durability';
+  const q3Label = isV2 ? 'Momentum' : 'Technical';
+  const q4Label = isV2 ? 'Health' : 'Sector';
+
+  return `<div style="overflow-x:auto"><table class="universe-table">
     <thead><tr>
       <th>#</th><th>Ticker</th><th>Name</th><th>Sector</th>
-      <th>Score</th><th>Growth</th><th>Durability</th><th>Valuation</th><th>Rec</th>
+      <th>Score</th><th>Growth</th><th>${q2Label}</th><th>Valuation</th><th>${q3Label}</th><th>${q4Label}</th><th>Rec</th>
     </tr></thead>
-    <tbody>${results.map(i => `<tr class="result-row" data-ticker="${i.ticker}">
-      <td class="mono">${i.rank_in_universe ?? '—'}</td>
-      <td><strong>${i.ticker}</strong></td>
-      <td style="color:var(--text-2)">${i.name || '—'}</td>
-      <td style="color:var(--text-2);font-size:.75rem">${i.sector || '—'}</td>
-      <td style="font-weight:700;color:${scoreColor(i.composite_score)}">${fmt(i.composite_score)}</td>
-      <td class="mono">${fmt(i.growth_score)}</td>
-      <td class="mono">${fmt(i.durability_score)}</td>
-      <td class="mono">${fmt(i.valuation_score)}</td>
-      <td>${recBadge(i.recommendation)}</td>
-    </tr>`).join('')}</tbody>
-  </table>`;
+    <tbody>${results.map(i => {
+      const extraCols = isV2
+        ? `<td class="mono" title="Momentum">${fmt(i.technical_score)}</td><td class="mono" title="Health">${fmt(i.sector_score)}</td>`
+        : `<td class="mono">${fmt(i.technical_score)}</td><td class="mono">${fmt(i.sector_score)}</td>`;
+      return `<tr class="result-row" data-ticker="${i.ticker}">
+        <td class="mono">${i.rank_in_universe ?? '—'}</td>
+        <td><strong>${i.ticker}</strong></td>
+        <td style="color:var(--text-2)">${i.name || '—'}</td>
+        <td style="color:var(--text-3);font-size:.73rem">${i.sector || '—'}</td>
+        <td style="font-weight:700;color:${scoreColor(i.composite_score)}">${fmt(i.composite_score)}</td>
+        <td class="mono">${fmt(i.growth_score)}</td>
+        <td class="mono">${fmt(i.durability_score)}</td>
+        <td class="mono">${fmt(i.valuation_score)}</td>
+        ${extraCols}
+        <td>${recBadge(i.recommendation)}</td>
+      </tr>`;
+    }).join('')}</tbody>
+  </table></div>`;
 }
 
 // ── KPI row ───────────────────────────────────────
@@ -270,11 +333,32 @@ async function loadTop(limit = 50) {
 }
 
 // ── Load universe ─────────────────────────────────
-async function loadUniverse() {
-  $('universeTable').innerHTML = '<div class="empty-state"><div class="spinner-sm"></div><p>Loading universe…</p></div>';
+let sectorsLoaded = false;
+async function loadSectors() {
+  if (sectorsLoaded) return;
   try {
-    const data = await api('/top?limit=800');
+    const data = await api('/universe/sectors');
+    const sel = $('universeSector');
+    data.sectors.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      sel.appendChild(opt);
+    });
+    sectorsLoaded = true;
+  } catch (_) {}
+}
+
+async function loadUniverse(sector = '', q = '') {
+  $('universeTable').innerHTML = '<div class="empty-state" style="padding:40px"><div class="spinner-sm"></div><p>Loading universe…</p></div>';
+  await loadSectors();
+  try {
+    const params = new URLSearchParams({ limit: 1000 });
+    if (sector) params.set('sector', sector);
+    if (q) params.set('q', q);
+    const data = await api(`/top?${params}`);
     $('universeTable').innerHTML = renderUniverseTable(data.results);
+    const countEl = $('universeCount');
+    if (countEl) countEl.textContent = `${data.count} stock${data.count !== 1 ? 's' : ''}`;
     document.querySelectorAll('#universeTable .result-row').forEach(row => {
       row.addEventListener('click', () => {
         $('tickerInput').value = row.dataset.ticker;
@@ -283,7 +367,7 @@ async function loadUniverse() {
       });
     });
   } catch (e) {
-    $('universeTable').innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
+    $('universeTable').innerHTML = `<div class="empty-state" style="padding:40px"><p>${e.message}</p></div>`;
     toast(e.message, 'error');
   }
 }
@@ -411,7 +495,10 @@ $('runPrefilterBtn').addEventListener('click', () => runPrefilter(false));
 
 $('tickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') viewTicker(); });
 
-$('loadUniverseBtn').addEventListener('click', loadUniverse);
+$('loadUniverseBtn').addEventListener('click', () => {
+  const s = $('universeSector'); const q = $('universeSearch');
+  loadUniverse(s ? s.value : '', q ? q.value.trim() : '');
+});
 
 $('analyzeRunBtn').addEventListener('click', runAnalyze);
 $('analyzeRefreshBtn').addEventListener('click', async () => {
