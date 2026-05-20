@@ -18,11 +18,32 @@ RED    = "\033[91m"
 CYAN   = "\033[96m"
 RESET  = "\033[0m"
 
-def ok(msg):   print(f"{GREEN}  ✓ {msg}{RESET}")
-def info(msg): print(f"{CYAN}  ℹ {msg}{RESET}")
-def warn(msg): print(f"{YELLOW}  ⚠ {msg}{RESET}")
-def fail(msg): print(f"{RED}  ✗ {msg}{RESET}"); sys.exit(1)
-def step(msg): print(f"\n{CYAN}{'─'*55}\n  {msg}\n{'─'*55}{RESET}")
+# Try reconfiguring stdout to utf-8 if supported
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+except Exception:
+    pass
+
+# Detect if console encoding is UTF-8
+is_utf8 = False
+try:
+    if sys.stdout.encoding and sys.stdout.encoding.lower() in ("utf-8", "utf8"):
+        is_utf8 = True
+except Exception:
+    pass
+
+OK_SYM   = "✓" if is_utf8 else "[OK]"
+INFO_SYM = "ℹ" if is_utf8 else "[INFO]"
+WARN_SYM = "⚠" if is_utf8 else "[WARN]"
+FAIL_SYM = "✗" if is_utf8 else "[FAIL]"
+LINE_SYM = "─" if is_utf8 else "-"
+
+def ok(msg):   print(f"{GREEN}  {OK_SYM} {msg}{RESET}")
+def info(msg): print(f"{CYAN}  {INFO_SYM} {msg}{RESET}")
+def warn(msg): print(f"{YELLOW}  {WARN_SYM} {msg}{RESET}")
+def fail(msg): print(f"{RED}  {FAIL_SYM} {msg}{RESET}"); sys.exit(1)
+def step(msg): print(f"\n{CYAN}{LINE_SYM*55}\n  {msg}\n{LINE_SYM*55}{RESET}")
 
 # ─────────────────────────── TEST CONFIG ─────────────────────────────────────
 TEST_TICKERS = ["RELIANCE.NS", "TCS.NS", "INFY.NS"]   # 3 stocks

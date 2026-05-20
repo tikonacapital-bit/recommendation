@@ -306,13 +306,28 @@
               <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0">3</div>
               <h3 class="section-title" style="margin:0">Add a Custom Stock</h3>
             </div>
-            <p class="section-sub">Add any NSE/BSE stock outside the Nifty 50. Use the NSE ticker with <code>.NS</code> suffix (e.g. <code>ZOMATO.NS</code>, <code>DMART.NS</code>).</p>
+            <p class="section-sub">Add any NSE/BSE stock outside the default universe. Use the NSE ticker with <code>.NS</code> suffix (e.g. <code>ZOMATO.NS</code>, <code>DMART.NS</code>).</p>
             <p class="section-sub" style="color:var(--text-3);font-size:.75rem">Then go to the <strong>Analyze</strong> tab to run the full 4-agent AI pipeline on it.</p>
             <div class="input-row">
               <input class="text-input" id="customTickerInput" placeholder="e.g. ZOMATO.NS" style="flex:1" />
               <button class="btn btn-primary" id="customRefreshBtn">Add &amp; Refresh</button>
             </div>
             <div id="customRefreshResult" class="result-box hidden" style="margin-top:10px"></div>
+          </div>
+
+          <!-- Step 4 -->
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0">4</div>
+              <h3 class="section-title" style="margin:0">Paced Bulk AI Research</h3>
+            </div>
+            <p class="section-sub">Sequentially synthesize latest analyses in paced background batches (1.5s delay) for all prefiltered high-potential stocks (Tier 1 Passes).</p>
+            <p class="section-sub" style="color:var(--text-3);font-size:.75rem">Ensures OpenRouter compliance. Limit the maximum batch size below.</p>
+            <div class="input-row">
+              <input class="text-input" type="number" id="bulkLimitInput" value="50" min="1" max="200" style="flex:1" />
+              <button class="btn btn-primary" id="bulkAIUniverseBtn">Run Bulk AI</button>
+            </div>
+            <div id="bulkAIUniverseResult" class="result-box hidden" style="margin-top:10px"></div>
           </div>
 
           <!-- Task Monitor -->

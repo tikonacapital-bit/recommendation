@@ -75,7 +75,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // ── Sidebar toggle ────────────────────────────────
 $('sidebarToggle').addEventListener('click', () => {
-  document.querySelector('.sidebar').classList.toggle('collapsed');
+  const sidebar = document.querySelector('.sidebar');
+  sidebar.classList.toggle('collapsed');
+  sidebar.classList.toggle('active-mobile');
   document.querySelector('.main-wrap').classList.toggle('expanded');
 });
 
@@ -222,6 +224,22 @@ function renderAnalysis(item) {
       <div class="analysis-row-label">Catalysts</div>
       <div class="tag-list">${(item.key_catalysts || []).map(c => `<span class="tag tag-catalyst">${c.replace(/_/g,' ')}</span>`).join('')}</div>
     </div>` : ''}
+
+    <!-- Structured Evidence Registry Audit Trail -->
+    <div style="margin-top: 14px;">
+      <div class="analysis-row-label">Compliance Evidence Audit Trail</div>
+      <div id="evidenceRegistryContainer" class="shimmer" style="padding: 10px; background: rgba(255,255,255,.03); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        <p style="font-size: .8rem; color: var(--text-3);">Loading audit trail quotes…</p>
+      </div>
+    </div>
+
+    <!-- Recommendation Performance Backtesting -->
+    <div style="margin-top: 14px;">
+      <div class="analysis-row-label">Backtesting & Target Price Accuracy</div>
+      <div id="predictionTrackingContainer" class="shimmer" style="padding: 10px; background: rgba(255,255,255,.03); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        <p style="font-size: .8rem; color: var(--text-3);">Loading prediction metrics…</p>
+      </div>
+    </div>
 
     ${quantMetrics.length ? `
     <div>
@@ -383,6 +401,12 @@ async function viewTicker(sym) {
     $('stockView').innerHTML = renderAnalysis(data);
     $('selectedBadge').className = `badge badge-green`;
     $('selectedBadge').textContent = data.ticker;
+    
+    // Asynchronously harvest and load evidence audits & performance margin historical lists
+    if (data.id) {
+      loadEvidenceRegistry(data.id);
+    }
+    loadPredictionTracking(t);
   } catch (e) {
     $('stockView').innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
     $('selectedBadge').className = 'badge badge-red';
@@ -407,16 +431,37 @@ async function refreshTicker() {
 async function synthesizeTicker(sym) {
   const t = sym || ticker();
   const btn = $('synthesizeBtn'); btn.disabled = true;
-  toast(`Running AI agents on ${t}… (may take ~1 min)`, 'info');
+  toast(`Queueing AI agents on ${t}…`, 'info');
   try {
-    const data = await api(`/synthesize/${t}`, { method: 'POST' });
-    $('stockView').innerHTML = renderAnalysis(data);
-    $('selectedBadge').className = 'badge badge-blue';
-    $('selectedBadge').textContent = 'AI Synthesized';
-    toast(`Synthesis complete for ${t}`, 'success');
-    await loadTop();
-  } catch (e) { toast(e.message, 'error'); }
-  finally { btn.disabled = false; }
+    const data = await api(`/synthesize/${t}?async_task=true`, { method: 'POST' });
+    if (data.task_id) {
+      showTaskBanner(data.task_id);
+      toast(`AI Synthesis queued for ${t}. Tracking progress...`, 'success');
+      
+      pollAgentPipelineTask(data.task_id, t, 
+        async () => {
+          toast(`AI Synthesis complete for ${t}!`, 'success');
+          await viewTicker(t);
+          await loadTop();
+          btn.disabled = false;
+        },
+        (err) => {
+          toast(`AI Synthesis failed: ${err.message}`, 'error');
+          btn.disabled = false;
+        }
+      );
+    } else {
+      $('stockView').innerHTML = renderAnalysis(data);
+      $('selectedBadge').className = 'badge badge-blue';
+      $('selectedBadge').textContent = 'AI Synthesized';
+      toast(`Synthesis complete for ${t}`, 'success');
+      await loadTop();
+      btn.disabled = false;
+    }
+  } catch (e) { 
+    toast(e.message, 'error'); 
+    btn.disabled = false;
+  }
 }
 
 // ── Task banner ───────────────────────────────────
@@ -458,31 +503,64 @@ function setStep(id, state) { $(id).className = `agent-step ${state}`; }
 async function runAnalyze() {
   const t = ($('analyzeTickerInput').value.trim() || ticker()).toUpperCase();
   $('analyzeProgress').classList.remove('hidden');
-  $('analyzeResult').innerHTML = '<div class="empty-state"><div class="spinner-sm"></div><p>Running agents…</p></div>';
+  $('analyzeResult').innerHTML = '<div class="empty-state"><div class="spinner-sm"></div><p>Queueing AI agents on worker…</p></div>';
   resetSteps();
-
-  // Animate steps while waiting (fake progress — real progress would need SSE)
-  const delays = [0, 8000, 16000, 24000, 32000];
-  stepIds.forEach((id, i) => setTimeout(() => setStep(id, 'running'), delays[i]));
+  setStep('stepA', 'running');
 
   const btn = $('analyzeRunBtn'); btn.disabled = true;
   try {
-    const data = await api(`/synthesize/${t}`, { method: 'POST' });
-    stepIds.forEach(id => setStep(id, 'done'));
-    $('analyzeResult').innerHTML = renderAnalysis(data);
-    toast(`Analysis complete for ${t}`, 'success');
-    // Also update dashboard
-    $('tickerInput').value = t;
-    $('stockView').innerHTML = renderAnalysis(data);
-    $('selectedBadge').className = 'badge badge-blue';
-    $('selectedBadge').textContent = 'AI Synthesized';
-    await loadTop();
+    const data = await api(`/synthesize/${t}?async_task=true`, { method: 'POST' });
+    if (data.task_id) {
+      showTaskBanner(data.task_id);
+      
+      pollAgentPipelineTask(data.task_id, t,
+        async () => {
+          stepIds.forEach(id => setStep(id, 'done'));
+          toast(`Analysis complete for ${t}`, 'success');
+          
+          const finalData = await api(`/view/${t}`);
+          $('analyzeResult').innerHTML = renderAnalysis(finalData);
+          
+          $('tickerInput').value = t;
+          $('stockView').innerHTML = renderAnalysis(finalData);
+          $('selectedBadge').className = 'badge badge-blue';
+          $('selectedBadge').textContent = 'AI Synthesized';
+          
+          loadEvidenceRegistry(finalData.id);
+          loadPredictionTracking(t);
+          
+          await loadTop();
+          btn.disabled = false;
+        },
+        (err) => {
+          stepIds.forEach(id => setStep(id, 'failed'));
+          $('analyzeResult').innerHTML = `<div class="empty-state"><p>Analysis failed: ${err.message}</p></div>`;
+          toast(err.message, 'error');
+          btn.disabled = false;
+        }
+      );
+    } else {
+      stepIds.forEach(id => setStep(id, 'done'));
+      $('analyzeResult').innerHTML = renderAnalysis(data);
+      toast(`Analysis complete for ${t}`, 'success');
+      
+      $('tickerInput').value = t;
+      $('stockView').innerHTML = renderAnalysis(data);
+      $('selectedBadge').className = 'badge badge-blue';
+      $('selectedBadge').textContent = 'AI Synthesized';
+      
+      loadEvidenceRegistry(data.id);
+      loadPredictionTracking(t);
+      
+      await loadTop();
+      btn.disabled = false;
+    }
   } catch (e) {
     stepIds.forEach(id => setStep(id, 'failed'));
     $('analyzeResult').innerHTML = `<div class="empty-state"><p>${e.message}</p></div>`;
     toast(e.message, 'error');
+    btn.disabled = false;
   }
-  finally { btn.disabled = false; }
 }
 
 // ── Wire events ───────────────────────────────────
@@ -590,6 +668,35 @@ $('fullPipelineBtn').addEventListener('click', runFullPipeline);
 $('customRefreshBtn').addEventListener('click', customRefresh);
 $('customTickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') customRefresh(); });
 
+// ── Bulk AI Universe Research ─────────────────────
+async function runBulkAIUniverse() {
+  const limitInput = $('bulkLimitInput');
+  const limit = parseInt(limitInput ? limitInput.value : '50', 10) || 50;
+  const btn = $('bulkAIUniverseBtn'); btn.disabled = true;
+  const result = $('bulkAIUniverseResult');
+  result.classList.remove('hidden');
+  result.textContent = 'Queueing paced background universe AI synthesis…';
+  toast('Queueing paced background AI research for high-potential universe', 'info');
+  try {
+    const data = await api(`/pipeline/run_ai_universe?limit=${limit}`, { method: 'POST' });
+    if (data.task_id) {
+      showTaskBanner(data.task_id);
+      result.textContent = `Queued successfully!\nTask ID: ${data.task_id}\nCheck progress using Task Monitor or watch the Celery worker logs.`;
+      toast('Bulk AI Universe research task queued', 'success');
+    } else {
+      result.textContent = `✓ Done!\nMessage: ${data.message}`;
+      toast('Bulk AI Universe research complete', 'success');
+      await loadTop();
+    }
+  } catch (e) {
+    result.textContent = `Error: ${e.message}`;
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+$('bulkAIUniverseBtn').addEventListener('click', runBulkAIUniverse);
+
 $('taskMonitorBtn').addEventListener('click', async () => {
   const id = $('taskMonitorInput').value.trim();
   if (!id) { toast('Enter a task ID', 'error'); return; }
@@ -605,6 +712,143 @@ document.addEventListener('click', e => {
   const row = e.target.closest('#universeTable .result-row');
   if (row) { showView('dashboard'); $('tickerInput').value = row.dataset.ticker; viewTicker(row.dataset.ticker); }
 });
+
+// ── Compliance Registry & Prediction Tracking Loaders ─────────────────
+async function loadEvidenceRegistry(analysisId) {
+  const container = $('evidenceRegistryContainer');
+  if (!container) return;
+  
+  try {
+    const data = await api(`/analysis/${analysisId}/evidence`);
+    container.classList.remove('shimmer');
+    
+    if (!data.evidence || data.evidence.length === 0) {
+      container.innerHTML = `<p style="font-size: .78rem; color: var(--text-3); text-align: center; margin: 4px 0;">No audit quotes registered for this analysis.</p>`;
+      return;
+    }
+    
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; padding-right: 4px;">
+        ${data.evidence.map(item => `
+          <div style="padding: 8px; background: rgba(255,255,255,.02); border-radius: 6px; border-left: 3px solid var(--accent); font-size: .78rem; line-height: 1.4;">
+            <div style="font-style: italic; color: var(--text-2); margin-bottom: 4px;">"${item.quote}"</div>
+            <div style="display: flex; justify-content: space-between; font-size: .68rem; color: var(--text-3); font-weight: 500; text-transform: uppercase;">
+              <span>Pillar: ${item.pillar || 'General'}</span>
+              <span>Source: ${item.source_doc_id ? 'Doc ID #' + item.source_doc_id : 'Concall Transcript'}</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  } catch (e) {
+    container.classList.remove('shimmer');
+    container.innerHTML = `<p style="font-size: .78rem; color: var(--red);">Failed to load evidence: ${e.message}</p>`;
+  }
+}
+
+async function loadPredictionTracking(tickerVal) {
+  const container = $('predictionTrackingContainer');
+  if (!container) return;
+  
+  try {
+    const data = await api(`/stock/${tickerVal}/predictions`);
+    container.classList.remove('shimmer');
+    
+    if (!data.predictions || data.predictions.length === 0) {
+      container.innerHTML = `<p style="font-size: .78rem; color: var(--text-3); text-align: center; margin: 4px 0;">No price tracking history. Run a refresh to compare active targets with current market price.</p>`;
+      return;
+    }
+    
+    const latest = data.predictions[0];
+    const errorPct = (latest.error_margin * 100).toFixed(1);
+    const errorColor = latest.error_margin < 0 ? 'var(--red)' : 'var(--green)';
+    
+    container.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; text-align: center;">
+          <div style="padding: 6px; background: rgba(255,255,255,.02); border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-size: .65rem; color: var(--text-3); text-transform: uppercase; margin-bottom: 2px;">Target (Base)</div>
+            <div style="font-size: .85rem; font-weight: 700;">₹${Number(latest.predicted_price).toFixed(1)}</div>
+          </div>
+          <div style="padding: 6px; background: rgba(255,255,255,.02); border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-size: .65rem; color: var(--text-3); text-transform: uppercase; margin-bottom: 2px;">Actual Price</div>
+            <div style="font-size: .85rem; font-weight: 700;">₹${Number(latest.actual_price).toFixed(1)}</div>
+          </div>
+          <div style="padding: 6px; background: rgba(255,255,255,.02); border-radius: 6px; border: 1px solid var(--border);">
+            <div style="font-size: .65rem; color: var(--text-3); text-transform: uppercase; margin-bottom: 2px;">Error Margin</div>
+            <div style="font-size: .85rem; font-weight: 700; color: ${errorColor};">${errorPct}%</div>
+          </div>
+        </div>
+        
+        <div style="max-height: 120px; overflow-y: auto; padding-right: 4px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: .72rem; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border); color: var(--text-3);">
+                <th style="padding: 4px 0;">Date</th>
+                <th style="padding: 4px 0;">Target</th>
+                <th style="padding: 4px 0;">Actual</th>
+                <th style="padding: 4px 0; text-align: right;">Deviation</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${data.predictions.slice(0, 5).map(item => {
+                const dateStr = new Date(item.evaluated_at).toLocaleDateString('en-IN', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                const devPct = (item.error_margin * 100).toFixed(1);
+                const devColor = item.error_margin < 0 ? 'var(--red)' : 'var(--green)';
+                return `
+                  <tr style="border-bottom: 1px solid rgba(255,255,255,.02); color: var(--text-2);">
+                    <td style="padding: 5px 0;">${dateStr}</td>
+                    <td style="padding: 5px 0; font-family: var(--mono);">₹${Number(item.predicted_price).toFixed(0)}</td>
+                    <td style="padding: 5px 0; font-family: var(--mono);">₹${Number(item.actual_price).toFixed(0)}</td>
+                    <td style="padding: 5px 0; font-family: var(--mono); text-align: right; color: ${devColor};">${devPct}%</td>
+                  </tr>
+                `;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    container.classList.remove('shimmer');
+    container.innerHTML = `<p style="font-size: .78rem; color: var(--red);">Failed to load performance metrics: ${e.message}</p>`;
+  }
+}
+
+function pollAgentPipelineTask(taskId, tickerVal, onComplete, onError) {
+  let attempts = 0;
+  const maxAttempts = 50; // 2.5 minutes max
+  
+  const timer = setInterval(async () => {
+    attempts++;
+    if (attempts > maxAttempts) {
+      clearInterval(timer);
+      onError(new Error("Analysis task timed out."));
+      return;
+    }
+    
+    try {
+      const data = await api(`/tasks/${taskId}`);
+      
+      // Update step visualizer depending on attempts to make it feel extremely active and responsive
+      if (attempts === 2) setStep('stepA', 'running');
+      if (attempts === 5) { setStep('stepA', 'done'); setStep('stepB', 'running'); }
+      if (attempts === 10) { setStep('stepB', 'done'); setStep('stepC', 'running'); }
+      if (attempts === 15) { setStep('stepC', 'done'); setStep('stepD', 'running'); }
+      if (attempts === 20) { setStep('stepD', 'done'); setStep('stepSynth', 'running'); }
+      
+      if (data.status === 'SUCCESS') {
+        clearInterval(timer);
+        onComplete(data);
+      } else if (data.status === 'FAILURE' || data.status === 'REVOKED') {
+        clearInterval(timer);
+        onError(new Error(data.message || "Task execution failed on worker."));
+      }
+    } catch (e) {
+      console.warn("Polling error:", e);
+    }
+  }, 3000);
+}
 
 // ── Boot ──────────────────────────────────────────
 loadStatus();

@@ -55,6 +55,53 @@ def _df_to_dict(df: pd.DataFrame) -> dict:
     return _json_safe(df.to_dict())
 
 
+def track_prediction_performance(db: Session, stock_id: int, actual_price: float) -> None:
+    """Check active analyses, compute target price error margin, and log to prediction_tracking."""
+    from app.models.models import StockAnalysis, PredictionTracking
+    from sqlalchemy import desc
+    
+    if actual_price is None or actual_price <= 0:
+        return
+        
+    # Get the latest StockAnalysis for this stock
+    analysis = (
+        db.query(StockAnalysis)
+        .filter(StockAnalysis.stock_id == stock_id)
+        .order_by(desc(StockAnalysis.created_at), desc(StockAnalysis.id))
+        .first()
+    )
+    if not analysis or not analysis.target_prices:
+        return
+        
+    target_prices = analysis.target_prices
+    # Ensure it's a dictionary and has 'base'
+    if not isinstance(target_prices, dict) or 'base' not in target_prices:
+        return
+        
+    predicted_base = target_prices.get('base')
+    try:
+        predicted_base = float(predicted_base)
+    except (TypeError, ValueError):
+        return
+        
+    if predicted_base <= 0:
+        return
+        
+    # Compute error margin as percentage: (actual - predicted) / predicted
+    error_margin = (actual_price - predicted_base) / predicted_base
+    
+    # Create prediction tracking record
+    tracking_record = PredictionTracking(
+        stock_id=stock_id,
+        analysis_id=analysis.id,
+        predicted_price=predicted_base,
+        actual_price=actual_price,
+        error_margin=round(error_margin, 4),
+        evaluated_at=datetime.utcnow()
+    )
+    db.add(tracking_record)
+
+
 def fetch_and_store_stock_data(tickers: list[str]):
     _clear_dead_local_proxy()
     db: Session = SessionLocal()
@@ -127,6 +174,15 @@ def fetch_and_store_stock_data(tickers: list[str]):
                 logger.info(f"Updated financial model for {ticker_symbol}")
                 
             db.commit()
+
+            # Track prediction performance if actual price is available
+            actual_price = info.get('currentPrice') or info.get('regularMarketPrice') or info.get('previousClose')
+            if actual_price:
+                try:
+                    track_prediction_performance(db, db_stock.id, float(actual_price))
+                    db.commit()
+                except Exception as ex:
+                    logger.warning(f"Failed to track prediction performance for {ticker_symbol}: {ex}")
             
         except Exception as e:
             logger.error(f"Error processing {ticker_symbol}: {str(e)}")
@@ -215,6 +271,13 @@ def sync_from_equity_universe() -> tuple[int, int]:
                     db.add(FinancialModel(stock_id=db_stock.id, period=current_period, data=financials_data))
                 else:
                     db_fin.data = financials_data
+
+                # Track prediction performance if active price in equity_universe is available
+                if row.current_price:
+                    try:
+                        track_prediction_performance(db, db_stock.id, float(row.current_price))
+                    except Exception as ex:
+                        logger.warning(f"Failed to track prediction performance during universe sync for {nse_code}: {ex}")
 
                 synced += 1
                 if synced % 100 == 0:

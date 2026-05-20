@@ -139,37 +139,10 @@ def _fetch_financial_snippet(ticker: str) -> dict:
         return {}
 
 
-def _call_llm(prompt: str, max_retries: int = 4) -> str:
-    """Route to the configured LLM provider, retrying on 429 rate-limit errors."""
-    import time
-    import requests as req_lib
-
-    provider = _provider()
-    caller = _call_anthropic if provider == "anthropic" else _call_openrouter
-    if provider not in {"anthropic", "openrouter"}:
-        raise RuntimeError("Set LLM_PROVIDER to 'anthropic' or 'openrouter'.")
-
-    for attempt in range(max_retries):
-        try:
-            return caller(prompt)
-        except req_lib.exceptions.HTTPError as exc:
-            if exc.response is not None and exc.response.status_code == 429:
-                wait = 2 ** attempt  # 1 s, 2 s, 4 s, 8 s
-                print(f"[nodes] 429 rate-limit — retrying in {wait}s (attempt {attempt+1}/{max_retries})")
-                time.sleep(wait)
-            else:
-                raise
-        except Exception as exc:
-            # Anthropic SDK raises anthropic.RateLimitError (not requests.HTTPError)
-            exc_type = type(exc).__name__
-            status = getattr(exc, "status_code", None)
-            if "RateLimit" in exc_type or status == 429:
-                wait = 2 ** attempt
-                print(f"[nodes] rate-limit ({exc_type}) — retrying in {wait}s (attempt {attempt+1}/{max_retries})")
-                time.sleep(wait)
-            else:
-                raise
-    raise RuntimeError(f"Rate-limit persisted after {max_retries} retries.")
+def _call_llm(prompt: str, max_retries: int = 5) -> str:
+    """Route to the robust high-resilience LLM gateway."""
+    from app.services.llm_synthesis import call_llm_robust
+    return call_llm_robust(prompt, max_retries=max_retries)
 
 
 

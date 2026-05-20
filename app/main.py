@@ -11,7 +11,7 @@ from app.schemas import HealthResponse, RefreshResponse, RunResponse, StockAnaly
 from app.models.models import Stock, StockAnalysis
 from app.services.llm_synthesis import LLMConfigError, LLMResponseError, llm_status, synthesize_latest_analysis
 from app.services.prefilter import run_prefilter
-from app.tasks import refresh_tickers, run_prefilter_task
+from app.tasks import refresh_tickers, run_prefilter_task, run_agent_pipeline_task, run_universe_synthesis_task
 
 app = FastAPI(title="Multi-Agent Equity Research System", version="0.1.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -148,10 +148,30 @@ def view_stock(ticker: str, db: Session = Depends(get_db)) -> StockAnalysisRespo
     return _analysis_to_response(analysis)
 
 
-@app.post("/synthesize/{ticker}", response_model=StockAnalysisResponse)
-def synthesize_stock(ticker: str, db: Session = Depends(get_db)) -> StockAnalysisResponse:
+from typing import Union
+
+@app.post("/synthesize/{ticker}", response_model=Union[StockAnalysisResponse, TaskResponse])
+def synthesize_stock(
+    ticker: str,
+    async_task: bool = Query(default=False, description="Queue the run in Celery instead of running inline."),
+    db: Session = Depends(get_db)
+) -> Union[StockAnalysisResponse, TaskResponse]:
+    normalized_ticker = ticker.upper()
+    if async_task and run_agent_pipeline_task is not None:
+        broker_state, broker_message = broker_status()
+        if broker_state == "ok":
+            task = run_agent_pipeline_task.delay(normalized_ticker)
+            return TaskResponse(
+                status="queued",
+                task_id=task.id,
+                message=f"Multi-agent equity research synthesis queued for {normalized_ticker}.",
+            )
+        else:
+            # broker offline, fallback to inline
+            print(f"Broker offline ({broker_message}), falling back to inline synthesis")
+            
     try:
-        analysis = synthesize_latest_analysis(db, ticker)
+        analysis = synthesize_latest_analysis(db, normalized_ticker)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except LLMConfigError as exc:
@@ -239,16 +259,33 @@ def sync_stocks(db: Session = Depends(get_db)) -> dict:
 
 @app.post("/stocks/seed")
 def seed_stocks(db: Session = Depends(get_db)) -> dict:
-    """Ingest the full Nifty 50 list into the database (legacy fallback)."""
-    from app.services.ingestion import fetch_and_store_stock_data
-    fetch_and_store_stock_data(NIFTY_50)
-    total = db.query(Stock).filter(Stock.is_active.is_(True)).count()
-    return {
-        "status": "ok",
-        "seeded": len(NIFTY_50),
-        "total_tracked": total,
-        "message": f"Fetched data for {len(NIFTY_50)} Nifty 50 stocks. {total} stocks now tracked.",
-    }
+    """Sync from the equity_universe table first. Fallback to Nifty 50 only if empty or error."""
+    from app.services.ingestion import sync_from_equity_universe, fetch_and_store_stock_data
+    synced = 0
+    skipped = 0
+    try:
+        synced, skipped = sync_from_equity_universe()
+    except Exception as exc:
+        print(f"Error syncing from equity_universe, falling back to legacy seed: {exc}")
+        
+    if synced == 0:
+        fetch_and_store_stock_data(NIFTY_50)
+        total = db.query(Stock).filter(Stock.is_active.is_(True)).count()
+        return {
+            "status": "ok",
+            "seeded": len(NIFTY_50),
+            "total_tracked": total,
+            "message": f"Seeded {len(NIFTY_50)} Nifty 50 stocks (legacy fallback). {total} stocks now tracked.",
+        }
+    else:
+        total = db.query(Stock).filter(Stock.is_active.is_(True)).count()
+        return {
+            "status": "ok",
+            "synced": synced,
+            "skipped": skipped,
+            "total_tracked": total,
+            "message": f"Synced {synced} stocks from equity_universe. {total} stocks now tracked.",
+        }
 
 
 @app.post("/pipeline/full")
@@ -266,6 +303,41 @@ def run_full_pipeline(db: Session = Depends(get_db)) -> dict:
         "processed_count": run.processed_count or 0,
         "message": f"Synced {synced} stocks from equity_universe and ran Tier-1 prefilter. {run.processed_count} stocks scored.",
     }
+
+
+@app.post("/pipeline/run_ai_universe", response_model=TaskResponse)
+def run_ai_universe(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db)
+) -> TaskResponse:
+    """Trigger background batch AI synthesis for all prefiltered high-potential stocks (tier_reached = 1)."""
+    from app.tasks import run_universe_synthesis_task
+    if run_universe_synthesis_task is not None:
+        broker_state, broker_message = broker_status()
+        if broker_state != "ok":
+            from app.tasks import run_universe_synthesis_sync
+            print(f"Broker offline ({broker_message}), running universe synthesis task inline...")
+            res = run_universe_synthesis_sync(limit=limit)
+            return TaskResponse(
+                status="SUCCESS",
+                task_id="inline-run",
+                message=f"Universe synthesis run completed inline: {res['processed']} stocks processed.",
+            )
+            
+        task = run_universe_synthesis_task.delay(limit)
+        return TaskResponse(
+            status="queued",
+            task_id=task.id,
+            message=f"Background bulk AI universe synthesis queued for up to {limit} stocks.",
+        )
+    else:
+        from app.tasks import run_universe_synthesis_sync
+        res = run_universe_synthesis_sync(limit=limit)
+        return TaskResponse(
+            status="SUCCESS",
+            task_id="inline-run",
+            message=f"Universe synthesis run completed inline (no Celery): {res['processed']} stocks processed.",
+        )
 
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)
@@ -290,3 +362,43 @@ def task_status(task_id: str) -> TaskResponse:
         task_id=task_id,
         message=str(result.result) if result.ready() and result.result else "Task is not finished.",
     )
+
+
+@app.get("/analysis/{analysis_id}/evidence")
+def get_analysis_evidence(analysis_id: int, db: Session = Depends(get_db)) -> dict:
+    from app.models.models import EvidenceRegistry
+    items = db.query(EvidenceRegistry).filter(EvidenceRegistry.analysis_id == analysis_id).all()
+    return {
+        "analysis_id": analysis_id,
+        "evidence": [
+            {
+                "id": item.id,
+                "quote": item.quote,
+                "pillar": item.pillar,
+                "source_doc_id": item.source_doc_id
+            } for item in items
+        ]
+    }
+
+
+@app.get("/stock/{ticker}/predictions")
+def get_stock_predictions(ticker: str, db: Session = Depends(get_db)) -> dict:
+    from app.models.models import Stock, PredictionTracking
+    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"Unknown ticker: {ticker}")
+        
+    items = db.query(PredictionTracking).filter(PredictionTracking.stock_id == stock.id).order_by(desc(PredictionTracking.evaluated_at)).all()
+    return {
+        "ticker": ticker.upper(),
+        "predictions": [
+            {
+                "id": item.id,
+                "analysis_id": item.analysis_id,
+                "predicted_price": item.predicted_price,
+                "actual_price": item.actual_price,
+                "error_margin": item.error_margin,
+                "evaluated_at": item.evaluated_at
+            } for item in items
+        ]
+    }

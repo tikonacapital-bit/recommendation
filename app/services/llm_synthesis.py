@@ -103,14 +103,14 @@ def _extract_json(text: str) -> dict[str, Any]:
     return json.loads(text[start : end + 1])
 
 
-def _call_anthropic(prompt: str) -> str:
+def _call_anthropic(prompt: str, override_model: str = None) -> str:
     try:
         from anthropic import Anthropic
     except ModuleNotFoundError as exc:
         raise LLMConfigError("Install the anthropic package to use Claude directly.") from exc
 
     api_key = os.getenv("ANTHROPIC_API_KEY")
-    model = os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL")
+    model = override_model or os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL")
     if not api_key:
         raise LLMConfigError("ANTHROPIC_API_KEY is not configured.")
     if not model:
@@ -126,9 +126,9 @@ def _call_anthropic(prompt: str) -> str:
     return "".join(block.text for block in response.content if getattr(block, "type", None) == "text")
 
 
-def _call_openrouter(prompt: str) -> str:
+def _call_openrouter(prompt: str, override_model: str = None) -> str:
     api_key = os.getenv("OPENROUTER_API_KEY")
-    model = os.getenv("OPENROUTER_MODEL") or os.getenv("LLM_MODEL")
+    model = override_model or os.getenv("OPENROUTER_MODEL") or os.getenv("LLM_MODEL")
     if not api_key:
         raise LLMConfigError("OPENROUTER_API_KEY is not configured.")
     if not model:
@@ -153,6 +153,90 @@ def _call_openrouter(prompt: str) -> str:
     response.raise_for_status()
     data = response.json()
     return data["choices"][0]["message"]["content"]
+
+
+def call_llm_robust(prompt: str, max_retries: int = 5) -> str:
+    """
+    Unified LLM caller that handles rate limits (429) using exponential backoff with jitter,
+    and automatically fails over through a list of fallback models when rate limits persist.
+    """
+    import time
+    import random
+    import requests as req_lib
+
+    provider = _provider()
+    if provider not in {"anthropic", "openrouter"}:
+        raise RuntimeError("Set LLM_PROVIDER to 'anthropic' or 'openrouter'.")
+
+    # Load fallback models from .env, or use standard resilient free models on OpenRouter
+    fallback_env = os.getenv("FALLBACK_MODELS")
+    if fallback_env:
+        models = [m.strip() for m in fallback_env.split(",") if m.strip()]
+    else:
+        primary_model = os.getenv("OPENROUTER_MODEL") or os.getenv("LLM_MODEL") or "deepseek/deepseek-v4-flash:free"
+        if provider == "anthropic":
+            models = [
+                os.getenv("ANTHROPIC_MODEL") or os.getenv("LLM_MODEL") or "claude-3-5-haiku-20241022",
+                "claude-3-haiku-20240307"
+            ]
+        else:
+            # Curious list of standard high-quality OpenRouter free models
+            models = [
+                primary_model,
+                "google/gemini-2.5-flash:free",
+                "meta-llama/llama-3.3-70b-instruct:free",
+                "qwen/qwen-2.5-coder-32b-instruct:free",
+                "deepseek/deepseek-r1:free",
+                "mistralai/mistral-7b-instruct:free"
+            ]
+
+    # Deduplicate while preserving order
+    seen = set()
+    model_list = []
+    for m in models:
+        if m not in seen:
+            seen.add(m)
+            model_list.append(m)
+
+    last_exc = None
+    for model_index, model in enumerate(model_list):
+        caller = _call_anthropic if provider == "anthropic" else _call_openrouter
+        
+        print(f"[LLM Gateway] Attempting with model: {model} (provider: {provider})")
+        
+        for attempt in range(max_retries):
+            try:
+                # Call LLM with the specified model
+                return caller(prompt, override_model=model)
+            except Exception as exc:
+                last_exc = exc
+                status_code = getattr(exc, "status_code", None)
+                if not status_code and hasattr(exc, "response") and exc.response is not None:
+                    status_code = getattr(exc.response, "status_code", None)
+                
+                # Check for 429 Rate Limit
+                exc_type = type(exc).__name__
+                is_rate_limit = "RateLimit" in exc_type or status_code == 429
+                
+                if is_rate_limit:
+                    # Exponential backoff with jitter
+                    base_delay = 2 ** attempt
+                    jitter = random.uniform(0.5, 1.5)
+                    delay = base_delay * jitter
+                    print(f"[LLM Gateway] Rate-limit (429) hit on model {model}. Retrying in {delay:.2f}s (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(delay)
+                else:
+                    # Other exceptions (like parsing or API key issue) should also trigger backoff or failover
+                    base_delay = 1
+                    jitter = random.uniform(0.5, 1.2)
+                    delay = base_delay * jitter
+                    print(f"[LLM Gateway] Error ({exc_type}: {exc}) on model {model}. Retrying in {delay:.2f}s (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(delay)
+                    
+        # If we exhausted retries on this model, print failure and try the next fallback model
+        print(f"[LLM Gateway] Failed with model {model} after {max_retries} attempts. Switching to fallback...")
+        
+    raise RuntimeError(f"All fallback models exhausted. Last error: {last_exc}")
 
 
 def synthesize_latest_analysis(db: Session, ticker: str) -> StockAnalysis:
@@ -236,5 +320,56 @@ def synthesize_latest_analysis(db: Session, ticker: str) -> StockAnalysis:
         analysis.valuation_score = agent_d["valuation_score"]
 
     db.commit()
+    db.refresh(analysis)
+
+    # ── structured evidence harvesting & auditing registry ───────────────────
+    try:
+        from app.models.models import EvidenceRegistry, Document
+        
+        # Clean up existing evidence for this analysis to avoid duplicates on re-runs
+        db.query(EvidenceRegistry).filter(EvidenceRegistry.analysis_id == analysis.id).delete()
+        
+        # Collect evidence from all sub-agents
+        agents_keys = ["agent_a", "agent_b", "agent_c", "agent_d"]
+        for agent_key in agents_keys:
+            # We fetch from analysis.agent_outputs (since they were saved as dicts) or final_state
+            agent_out = analysis.agent_outputs.get(agent_key) or {}
+            evidence_list = agent_out.get("evidence") or []
+            for item in evidence_list:
+                quote_str = item.get("quote") or ""
+                source_str = item.get("source") or ""
+                pillar_str = item.get("pillar") or ""
+                
+                if not quote_str:
+                    continue
+                    
+                # Attempt to resolve source_doc_id
+                source_doc_id = None
+                if source_str:
+                    try:
+                        # If it's a numeric ID
+                        source_doc_id = int(source_str)
+                    except ValueError:
+                        # Search for document of this stock that matches source_str
+                        doc = db.query(Document).filter(
+                            Document.stock_id == stock.id,
+                            (Document.quarter.ilike(f"%{source_str}%")) | (Document.doc_type.ilike(f"%{source_str}%"))
+                        ).first()
+                        if doc:
+                            source_doc_id = doc.id
+                
+                ev_record = EvidenceRegistry(
+                    analysis_id=analysis.id,
+                    quote=quote_str,
+                    source_doc_id=source_doc_id,
+                    pillar=pillar_str
+                )
+                db.add(ev_record)
+                
+        db.commit()
+    except Exception as e:
+        print(f"[synthesis] Failed to harvest and save evidence: {e}")
+        db.rollback()
+
     db.refresh(analysis)
     return analysis
