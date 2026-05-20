@@ -16,6 +16,20 @@ from app.tasks import refresh_tickers, run_prefilter_task
 app = FastAPI(title="Multi-Agent Equity Research System", version="0.1.0")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
+# Nifty 50 constituents (NSE)
+NIFTY_50 = [
+    "RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "HINDUNILVR.NS",
+    "ICICIBANK.NS", "KOTAKBANK.NS", "LT.NS", "SBIN.NS", "BAJFINANCE.NS",
+    "BHARTIARTL.NS", "ASIANPAINT.NS", "MARUTI.NS", "AXISBANK.NS", "ITC.NS",
+    "SUNPHARMA.NS", "WIPRO.NS", "ULTRACEMCO.NS", "TITAN.NS", "NESTLEIND.NS",
+    "TATAMOTORS.NS", "HCLTECH.NS", "POWERGRID.NS", "NTPC.NS", "ONGC.NS",
+    "JSWSTEEL.NS", "TATASTEEL.NS", "BAJAJFINSV.NS", "ADANIPORTS.NS", "INDUSINDBK.NS",
+    "EICHERMOT.NS", "DIVISLAB.NS", "DRREDDY.NS", "CIPLA.NS", "GRASIM.NS",
+    "HINDALCO.NS", "COALINDIA.NS", "BPCL.NS", "TECHM.NS", "APOLLOHOSP.NS",
+    "BRITANNIA.NS", "TATACONSUM.NS", "HEROMOTOCO.NS", "BAJAJ-AUTO.NS", "SBILIFE.NS",
+    "HDFCLIFE.NS", "UPL.NS", "LTIM.NS", "M&M.NS", "ADANIENT.NS",
+]
+
 
 @app.get("/", include_in_schema=False)
 def web_app() -> FileResponse:
@@ -182,6 +196,52 @@ def refresh_ticker(ticker: str) -> RefreshResponse:
         ticker=normalized_ticker,
         message="Ingestion and Tier 1 prefilter refresh completed inline because Celery is not installed.",
     )
+
+
+@app.post("/stocks/sync")
+def sync_stocks(db: Session = Depends(get_db)) -> dict:
+    """Sync all stocks from the equity_universe Supabase table."""
+    from app.services.ingestion import sync_from_equity_universe
+    synced, skipped = sync_from_equity_universe()
+    total = db.query(Stock).filter(Stock.is_active.is_(True)).count()
+    return {
+        "status": "ok",
+        "synced": synced,
+        "skipped": skipped,
+        "total_tracked": total,
+        "message": f"Synced {synced} stocks from equity_universe ({skipped} skipped). {total} stocks now tracked.",
+    }
+
+
+@app.post("/stocks/seed")
+def seed_stocks(db: Session = Depends(get_db)) -> dict:
+    """Ingest the full Nifty 50 list into the database (legacy fallback)."""
+    from app.services.ingestion import fetch_and_store_stock_data
+    fetch_and_store_stock_data(NIFTY_50)
+    total = db.query(Stock).filter(Stock.is_active.is_(True)).count()
+    return {
+        "status": "ok",
+        "seeded": len(NIFTY_50),
+        "total_tracked": total,
+        "message": f"Fetched data for {len(NIFTY_50)} Nifty 50 stocks. {total} stocks now tracked.",
+    }
+
+
+@app.post("/pipeline/full")
+def run_full_pipeline(db: Session = Depends(get_db)) -> dict:
+    """Sync equity_universe, then immediately run the Tier-1 prefilter. One-click setup."""
+    from app.services.ingestion import sync_from_equity_universe
+    synced, skipped = sync_from_equity_universe()
+    run = run_prefilter(db)
+    return {
+        "status": run.status,
+        "synced": synced,
+        "skipped": skipped,
+        "run_id": run.id,
+        "total_stocks": run.total_stocks or 0,
+        "processed_count": run.processed_count or 0,
+        "message": f"Synced {synced} stocks from equity_universe and ran Tier-1 prefilter. {run.processed_count} stocks scored.",
+    }
 
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)

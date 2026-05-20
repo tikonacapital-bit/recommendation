@@ -49,7 +49,10 @@ function showView(name) {
   navBtns[name].classList.add('active');
 }
 
-Object.entries(navBtns).forEach(([name, btn]) => btn.addEventListener('click', () => showView(name)));
+Object.entries(navBtns).forEach(([name, btn]) => btn.addEventListener('click', () => {
+  showView(name);
+  if (name === 'universe') loadUniverse();
+}));
 
 // ── Sidebar toggle ────────────────────────────────
 $('sidebarToggle').addEventListener('click', () => {
@@ -433,6 +436,72 @@ $('analyzeViewBtn').addEventListener('click', async () => {
 
 $('prefilterInlineBtn').addEventListener('click', () => runPrefilter(false));
 $('prefilterAsyncBtn').addEventListener('click', () => runPrefilter(true));
+
+// ── Sync Equity Universe ──────────────────────────
+async function seedStocks() {
+  const btn = $('seedBtn'); btn.disabled = true;
+  const result = $('seedResult');
+  result.classList.remove('hidden');
+  result.textContent = 'Syncing equity_universe from Supabase… (~30 sec, please wait)';
+  toast('Syncing equity universe — reading 895 stocks from Supabase', 'info');
+  try {
+    const data = await api('/stocks/sync', { method: 'POST' });
+    result.textContent = `✓ ${data.message}`;
+    toast(`Synced ${data.synced} stocks successfully`, 'success');
+    await loadTop();
+  } catch (e) {
+    result.textContent = `Error: ${e.message}`;
+    toast(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+// ── Full pipeline (sync + prefilter) ─────────────
+async function runFullPipeline() {
+  const btn = $('fullPipelineBtn'); btn.disabled = true;
+  const result = $('fullPipelineResult');
+  result.classList.remove('hidden');
+  result.textContent = 'Running full pipeline (sync equity universe + prefilter)… please wait ~1 min';
+  toast('Full pipeline started — syncing 895 stocks then scoring all', 'info');
+  try {
+    const data = await api('/pipeline/full', { method: 'POST' });
+    result.textContent = `✓ ${data.message}`;
+    toast('Full pipeline complete!', 'success');
+    await loadTop();
+  } catch (e) {
+    result.textContent = `Error: ${e.message}`;
+    toast(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+// ── Custom ticker add ─────────────────────────────
+async function customRefresh() {
+  const t = ($('customTickerInput').value.trim()).toUpperCase();
+  if (!t) { toast('Enter a ticker first', 'error'); return; }
+  const btn = $('customRefreshBtn'); btn.disabled = true;
+  const result = $('customRefreshResult');
+  result.classList.remove('hidden');
+  result.textContent = `Fetching ${t}…`;
+  try {
+    const data = await api(`/refresh/${t}`, { method: 'POST' });
+    if (data.task_id) {
+      showTaskBanner(data.task_id);
+      result.textContent = `Queued: task ${data.task_id}`;
+      toast(`${t} refresh queued`, 'info');
+    } else {
+      result.textContent = `✓ ${t} refreshed. Go to Analyze tab to run AI agents.`;
+      toast(`${t} added and scored`, 'success');
+      await loadTop();
+    }
+  } catch (e) {
+    result.textContent = `Error: ${e.message}`;
+    toast(e.message, 'error');
+  } finally { btn.disabled = false; }
+}
+
+$('seedBtn').addEventListener('click', seedStocks);
+$('fullPipelineBtn').addEventListener('click', runFullPipeline);
+$('customRefreshBtn').addEventListener('click', customRefresh);
+$('customTickerInput').addEventListener('keydown', e => { if (e.key === 'Enter') customRefresh(); });
 
 $('taskMonitorBtn').addEventListener('click', async () => {
   const id = $('taskMonitorInput').value.trim();

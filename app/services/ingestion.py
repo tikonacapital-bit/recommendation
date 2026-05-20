@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
@@ -134,8 +135,104 @@ def fetch_and_store_stock_data(tickers: list[str]):
     db.close()
     logger.info("Ingestion completed.")
 
+def sync_from_equity_universe() -> tuple[int, int]:
+    """Sync stocks and financial data from equity_universe table.
+
+    Maps equity_universe columns to stocks + financial_models so the
+    prefilter can run without a yfinance call.
+    Returns (synced_count, skipped_count).
+    """
+    db: Session = SessionLocal()
+    synced = 0
+    skipped = 0
+    try:
+        rows = db.execute(text("""
+            SELECT nse_code, isin_code, company_name, sector, broad_sector,
+                   market_cap, current_price, book_value,
+                   roe, debt, net_worth, pe_ttm, pe_fy2026e,
+                   revenue_cagr_hist_2yr
+            FROM equity_universe
+            WHERE nse_code IS NOT NULL AND nse_code != ''
+        """)).fetchall()
+
+        for row in rows:
+            try:
+                nse_code = row.nse_code.strip().upper()
+                if not nse_code:
+                    skipped += 1
+                    continue
+                ticker_symbol = f"{nse_code}.NS"
+
+                market_cap_rupees = float(row.market_cap) * 1e7 if row.market_cap else None
+                roe_decimal = float(row.roe) / 100 if row.roe else None
+                revenue_growth = float(row.revenue_cagr_hist_2yr) / 100 if row.revenue_cagr_hist_2yr else None
+
+                debt_to_equity = None
+                if row.debt is not None and row.net_worth and float(row.net_worth) > 0:
+                    debt_to_equity = float(row.debt) / float(row.net_worth)
+
+                price_to_book = None
+                if row.current_price and row.book_value and float(row.book_value) > 0:
+                    price_to_book = float(row.current_price) / float(row.book_value)
+
+                db_stock = db.query(Stock).filter(Stock.ticker == ticker_symbol).first()
+                if not db_stock:
+                    db_stock = Stock(
+                        ticker=ticker_symbol,
+                        name=row.company_name or nse_code,
+                        sector=row.sector or row.broad_sector or "Unknown",
+                        market_cap=market_cap_rupees,
+                        isin=row.isin_code,
+                        is_active=True,
+                    )
+                    db.add(db_stock)
+                    db.flush()
+                else:
+                    db_stock.name = row.company_name or nse_code
+                    db_stock.sector = row.sector or row.broad_sector or db_stock.sector
+                    db_stock.market_cap = market_cap_rupees
+                    db_stock.is_active = True
+
+                current_period = f"FY{datetime.now().year}"
+                db_fin = db.query(FinancialModel).filter(
+                    FinancialModel.stock_id == db_stock.id,
+                    FinancialModel.period == current_period,
+                ).first()
+
+                financials_data: dict[str, Any] = {
+                    "key_ratios": {
+                        "returnOnEquity": roe_decimal,
+                        "revenueGrowth": revenue_growth,
+                        "debtToEquity": debt_to_equity,
+                        "trailingPE": float(row.pe_ttm) if row.pe_ttm else None,
+                        "forwardPE": float(row.pe_fy2026e) if row.pe_fy2026e else None,
+                        "priceToBook": price_to_book,
+                    },
+                    "source": "equity_universe",
+                }
+
+                if not db_fin:
+                    db.add(FinancialModel(stock_id=db_stock.id, period=current_period, data=financials_data))
+                else:
+                    db_fin.data = financials_data
+
+                synced += 1
+                if synced % 100 == 0:
+                    db.commit()
+                    logger.info("Synced %d stocks so far…", synced)
+
+            except Exception as exc:
+                logger.warning("Skipping %s: %s", row.nse_code, exc)
+                db.rollback()
+                skipped += 1
+
+        db.commit()
+        logger.info("Equity universe sync complete: %d synced, %d skipped.", synced, skipped)
+        return synced, skipped
+    finally:
+        db.close()
+
+
 if __name__ == "__main__":
-    # Test with a few Indian stocks (Reliance, TCS, HDFC Bank, Tata Motors)
-    # yfinance uses .NS for NSE
     test_tickers = ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "TATAMOTORS.NS"]
     fetch_and_store_stock_data(test_tickers)

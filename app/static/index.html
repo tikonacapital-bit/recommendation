@@ -163,7 +163,7 @@
             </div>
             <div id="topResults" class="empty-state">
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
-              <p>Click "Load All" to see universe ranking</p>
+              <p>No stocks yet — go to <strong>Pipeline</strong> and run Step 1 to sync your equity universe</p>
             </div>
           </div>
 
@@ -185,7 +185,7 @@
         <div class="card">
           <div id="universeTable" class="empty-state">
             <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
-            <p>Click "Load Universe" to fetch all stocks</p>
+            <p>No data yet — go to <strong>Pipeline</strong> and run Step 1 + 2 first</p>
           </div>
         </div>
       </section>
@@ -235,28 +235,85 @@
         <div class="page-header">
           <div>
             <h1 class="page-title">Pipeline Control</h1>
-            <p class="page-sub">Manage the Tier-1 prefilter and Celery task queue</p>
+            <p class="page-sub">Follow these 3 steps to populate your universe and start seeing results</p>
           </div>
         </div>
+
+        <!-- Quick-start banner -->
+        <div class="card quickstart-card" style="margin-bottom:16px;border-left:3px solid var(--accent)">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <strong style="color:var(--text-1)">First time? Start here.</strong>
+          </div>
+          <p style="color:var(--text-2);font-size:.85rem;margin:0">
+            Your database is empty until you run Step 1. Step 1 syncs all 895 stocks from your Supabase equity_universe table (takes ~30 sec).
+            Step 2 scores them all deterministically (instant). Step 3 runs the AI agents on any individual stock from the Analyze tab.
+          </p>
+          <button class="btn btn-primary" id="fullPipelineBtn" style="margin-top:12px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            Run Full Pipeline (Step 1 + 2 together)
+          </button>
+          <div id="fullPipelineResult" class="result-box hidden" style="margin-top:10px"></div>
+        </div>
+
         <div class="pipeline-grid">
+
+          <!-- Step 1 -->
           <div class="card">
-            <h3 class="section-title">Tier-1 Prefilter</h3>
-            <p class="section-sub">Runs all tracked stocks through deterministic hard filters (revenue growth ≥ 12%, market cap, auditor checks) and scores them.</p>
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0">1</div>
+              <h3 class="section-title" style="margin:0">Sync Equity Universe</h3>
+            </div>
+            <p class="section-sub">Reads all 895 stocks directly from your Supabase <code>equity_universe</code> table — no yfinance calls needed. Financial ratios (ROE, revenue CAGR, P/E, P/B, D/E) are mapped automatically.</p>
+            <p class="section-sub" style="color:var(--text-3);font-size:.75rem">Takes ~30 sec. Run again anytime to pick up new stocks added to equity_universe.</p>
+            <button class="btn btn-primary" id="seedBtn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 .49-3.5"></path></svg>
+              Sync Equity Universe
+            </button>
+            <div id="seedResult" class="result-box hidden" style="margin-top:10px"></div>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0">2</div>
+              <h3 class="section-title" style="margin:0">Run Tier-1 Prefilter</h3>
+            </div>
+            <p class="section-sub">Scores every tracked stock using deterministic rules: revenue growth ≥ 12%, market cap check, P/E, P/B, ROE, and leverage. No AI cost — pure Python.</p>
+            <p class="section-sub" style="color:var(--text-3);font-size:.75rem">Completes in seconds. After this, the Universe and Dashboard will show rankings.</p>
             <div class="btn-group">
-              <button class="btn btn-primary" id="prefilterInlineBtn">Run Inline</button>
+              <button class="btn btn-primary" id="prefilterInlineBtn">Run Now</button>
               <button class="btn btn-ghost" id="prefilterAsyncBtn">Queue in Celery</button>
             </div>
-            <div id="prefilterResult" class="result-box hidden"></div>
+            <div id="prefilterResult" class="result-box hidden" style="margin-top:10px"></div>
           </div>
+
+          <!-- Step 3 -->
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+              <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0">3</div>
+              <h3 class="section-title" style="margin:0">Add a Custom Stock</h3>
+            </div>
+            <p class="section-sub">Add any NSE/BSE stock outside the Nifty 50. Use the NSE ticker with <code>.NS</code> suffix (e.g. <code>ZOMATO.NS</code>, <code>DMART.NS</code>).</p>
+            <p class="section-sub" style="color:var(--text-3);font-size:.75rem">Then go to the <strong>Analyze</strong> tab to run the full 4-agent AI pipeline on it.</p>
+            <div class="input-row">
+              <input class="text-input" id="customTickerInput" placeholder="e.g. ZOMATO.NS" style="flex:1" />
+              <button class="btn btn-primary" id="customRefreshBtn">Add &amp; Refresh</button>
+            </div>
+            <div id="customRefreshResult" class="result-box hidden" style="margin-top:10px"></div>
+          </div>
+
+          <!-- Task Monitor -->
           <div class="card">
             <h3 class="section-title">Task Monitor</h3>
-            <p class="section-sub">Check the status of a queued Celery task by ID.</p>
+            <p class="section-sub">If you queued a Celery task, paste its ID here to check status.</p>
             <div class="input-row">
               <input class="text-input" id="taskMonitorInput" placeholder="Paste task ID…" />
               <button class="btn btn-ghost" id="taskMonitorBtn">Check</button>
             </div>
             <div id="taskMonitorResult" class="result-box hidden"></div>
           </div>
+
         </div>
       </section>
 
