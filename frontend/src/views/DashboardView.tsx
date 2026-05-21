@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { api, fmt, scoreColor } from '../lib/api';
+import { useState, useEffect, useCallback } from 'react';
+import { api, scoreColor } from '../lib/api';
 import type { StockAnalysis, TopResponse } from '../lib/types';
 import AnalysisPanel from '../components/AnalysisPanel';
 import StockRow from '../components/StockRow';

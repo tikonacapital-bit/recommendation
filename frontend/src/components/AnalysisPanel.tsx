@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { StockAnalysis } from '../lib/types';
 import { api, fmt, fmtPrice, scoreColor, scoreGradient } from '../lib/api';
 
@@ -161,8 +161,16 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
             Score Breakdown
             {pf2 && <span className="normal-case tracking-normal ml-1 text-slate-700">(percentile-ranked)</span>}
           </div>
-          <div className="space-y-2.5">
-            {bars.map(b => <ScoreBar key={b.label} label={b.label} value={b.val} />)}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4">
+            <div className="space-y-3 w-full">
+              {bars.map(b => <ScoreBar key={b.label} label={b.label} value={b.val} />)}
+            </div>
+            <div className="flex justify-center w-full">
+              <RadarChart
+                items={bars.map(b => ({ label: b.label, val: b.val ?? 0 }))}
+                strokeColor={color}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -254,60 +262,388 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
       </div>
 
       {/* Prediction Tracking */}
-      <div>
-        <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-3">Backtesting & Price Accuracy</div>
-        <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-3">
-          {loadingPreds ? (
-            <div className="h-16 shimmer rounded-lg" />
-          ) : predictions.length === 0 ? (
-            <p className="text-xs text-slate-600 text-center py-3">No price tracking history yet.</p>
-          ) : (
-            <>
-              <div className="grid grid-cols-3 gap-2 mb-3">
-                {[
-                  { label: 'Target (Base)', val: `₹${Number(predictions[0].predicted_price).toFixed(1)}` },
-                  { label: 'Actual Price', val: `₹${Number(predictions[0].actual_price).toFixed(1)}` },
-                  {
-                    label: 'Error Margin',
-                    val: `${(predictions[0].error_margin * 100).toFixed(1)}%`,
-                    color: predictions[0].error_margin < 0 ? 'text-red-400' : 'text-green-400',
-                  },
-                ].map(({ label, val, color: c }) => (
-                  <div key={label} className="bg-white/[0.03] border border-white/[0.05] rounded-lg p-2 text-center">
-                    <div className="text-[10px] text-slate-600 uppercase mb-1">{label}</div>
-                    <div className={`text-sm font-bold font-mono ${c || 'text-slate-200'}`}>{val}</div>
+      {predictions && (
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-3">Backtesting & Price Accuracy</div>
+          <div className="bg-white/[0.02] border border-white/[0.05] rounded-2xl p-4">
+            {loadingPreds ? (
+              <div className="h-16 shimmer rounded-lg" />
+            ) : predictions.length === 0 ? (
+              <p className="text-xs text-slate-600 text-center py-3">No price tracking history yet.</p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <div className="space-y-3 w-full">
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Target (Base)', val: `₹${Number(predictions[0].predicted_price).toFixed(1)}` },
+                      { label: 'Actual Price', val: `₹${Number(predictions[0].actual_price).toFixed(1)}` },
+                      {
+                        label: 'Error Margin',
+                        val: `${(predictions[0].error_margin * 100).toFixed(1)}%`,
+                        color: predictions[0].error_margin < 0 ? 'text-red-400' : 'text-green-400',
+                      },
+                    ].map(({ label, val, color: c }) => (
+                      <div key={label} className="bg-white/[0.03] border border-white/[0.05] rounded-xl p-2 text-center">
+                        <div className="text-[10px] text-slate-600 uppercase mb-1">{label}</div>
+                        <div className={`text-sm font-bold font-mono ${c || 'text-slate-200'}`}>{val}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="max-h-28 overflow-y-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-slate-600 border-b border-white/[0.05]">
-                      <th className="text-left py-1.5">Date</th>
-                      <th className="text-left py-1.5">Target</th>
-                      <th className="text-left py-1.5">Actual</th>
-                      <th className="text-right py-1.5">Deviation</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {predictions.slice(0, 5).map(p => {
-                      const devColor = p.error_margin < 0 ? 'text-red-400' : 'text-green-400';
-                      return (
-                        <tr key={p.id} className="border-b border-white/[0.03] text-slate-400">
-                          <td className="py-1.5">{new Date(p.evaluated_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}</td>
-                          <td className="py-1.5 font-mono">₹{Number(p.predicted_price).toFixed(0)}</td>
-                          <td className="py-1.5 font-mono">₹{Number(p.actual_price).toFixed(0)}</td>
-                          <td className={`py-1.5 font-mono text-right ${devColor}`}>{(p.error_margin * 100).toFixed(1)}%</td>
+                  <div className="max-h-28 overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-slate-600 border-b border-white/[0.05]">
+                          <th className="text-left py-1.5 font-bold uppercase tracking-wider text-[8px]">Date</th>
+                          <th className="text-left py-1.5 font-bold uppercase tracking-wider text-[8px]">Target</th>
+                          <th className="text-left py-1.5 font-bold uppercase tracking-wider text-[8px]">Actual</th>
+                          <th className="text-right py-1.5 font-bold uppercase tracking-wider text-[8px]">Deviation</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {predictions.slice(0, 5).map(p => {
+                          const devColor = p.error_margin < 0 ? 'text-red-400' : 'text-green-400';
+                          return (
+                            <tr key={p.id} className="border-b border-white/[0.03] text-slate-400">
+                              <td className="py-1.5 font-semibold">{new Date(p.evaluated_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}</td>
+                              <td className="py-1.5 font-mono">₹{Number(p.predicted_price).toFixed(0)}</td>
+                              <td className="py-1.5 font-mono">₹{Number(p.actual_price).toFixed(0)}</td>
+                              <td className={`py-1.5 font-mono text-right ${devColor}`}>{(p.error_margin * 100).toFixed(1)}%</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                <div className="w-full flex justify-center">
+                  <BacktestChart data={predictions} />
+                </div>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
+  );
+}
+
+interface RadarChartProps {
+  items: { label: string; val: number }[];
+  strokeColor: string;
+}
+
+export function RadarChart({ items, strokeColor }: RadarChartProps) {
+  const width = 220;
+  const height = 220;
+  const cx = width / 2;
+  const cy = height / 2;
+  const r = 70; // max radius
+  const N = items.length;
+  if (N < 3) return null;
+
+  // Compute angles and vertices for 100% level
+  const points = items.map((_, i) => {
+    const angle = (i * 2 * Math.PI) / N - Math.PI / 2;
+    return {
+      angle,
+      x: cx + r * Math.cos(angle),
+      y: cy + r * Math.sin(angle),
+    };
+  });
+
+  // Concentric rings (tiers) - 20%, 40%, 60%, 80%, 100%
+  const tiers = [0.2, 0.4, 0.6, 0.8, 1.0];
+
+  // Draw tier polygons
+  const tierPaths = tiers.map(t => {
+    const pStr = items.map((_, i) => {
+      const angle = (i * 2 * Math.PI) / N - Math.PI / 2;
+      const tx = cx + r * t * Math.cos(angle);
+      const ty = cy + r * t * Math.sin(angle);
+      return `${tx},${ty}`;
+    }).join(' ');
+    return pStr;
+  });
+
+  // Data polygon path
+  const dataPoints = items.map((item, i) => {
+    const val = Math.min(100, Math.max(0, item.val));
+    const angle = (i * 2 * Math.PI) / N - Math.PI / 2;
+    const dx = cx + r * (val / 100) * Math.cos(angle);
+    const dy = cy + r * (val / 100) * Math.sin(angle);
+    return { x: dx, y: dy };
+  });
+  const dataPathStr = dataPoints.map(p => `${p.x},${p.y}`).join(' ');
+
+  return (
+    <svg width={width} height={height} viewBox={"0 0 " + width + " " + height} className="overflow-visible select-none my-2">
+      {/* Background radial grid lines (axes) */}
+      {points.map((p, i) => (
+        <line
+          key={"axis-" + i}
+          x1={cx}
+          y1={cy}
+          x2={p.x}
+          y2={p.y}
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth="1"
+        />
+      ))}
+
+      {/* Nested polygons for tiers */}
+      {tierPaths.map((pStr, i) => (
+        <polygon
+          key={"tier-" + i}
+          points={pStr}
+          fill="none"
+          stroke="rgba(255,255,255,0.06)"
+          strokeWidth="1"
+        />
+      ))}
+
+      {/* Grid concentric rings percentage indicators */}
+      {tiers.map((t, i) => {
+        return (
+          <text
+            key={"pct-" + i}
+            x={cx + 4}
+            y={cy - r * t + 3}
+            fill="rgba(255,255,255,0.2)"
+            fontSize="8"
+            className="font-mono pointer-events-none"
+          >
+            {Math.round(t * 100)}
+          </text>
+        );
+      })}
+
+      {/* Data Area Polyfill */}
+      {dataPathStr && (
+        <polygon
+          points={dataPathStr}
+          fill={strokeColor}
+          fillOpacity="0.18"
+          stroke={strokeColor}
+          strokeWidth="2.5"
+          className="transition-all duration-500 hover:fill-opacity-30"
+          style={{ filter: 'drop-shadow(0 0 4px ' + strokeColor + '40)' }}
+        />
+      )}
+
+      {/* Vertices/Data markers */}
+      {dataPoints.map((p, i) => (
+        <circle
+          key={"dot-" + i}
+          cx={p.x}
+          cy={p.y}
+          r="3"
+          fill="#fff"
+          stroke={strokeColor}
+          strokeWidth="1.5"
+          className="transition-all duration-300 hover:scale-150"
+        />
+      ))}
+
+      {/* Axis Labels */}
+      {points.map((p, i) => {
+        const item = items[i];
+        const labelOffset = 12;
+        const lx = cx + (r + labelOffset) * Math.cos(p.angle);
+        const ly = cy + (r + labelOffset) * Math.sin(p.angle);
+        
+        let textAnchor: 'middle' | 'start' | 'end' = 'middle';
+        if (Math.cos(p.angle) > 0.1) textAnchor = 'start';
+        else if (Math.cos(p.angle) < -0.1) textAnchor = 'end';
+
+        let dy = '0.35em';
+        if (Math.sin(p.angle) > 0.8) dy = '0.8em';
+        else if (Math.sin(p.angle) < -0.8) dy = '-0.2em';
+
+        return (
+          <text
+            key={"lbl-" + i}
+            x={lx}
+            y={ly}
+            fill="#94a3b8"
+            fontSize="9"
+            fontWeight="600"
+            textAnchor={textAnchor}
+            dy={dy}
+            className="font-sans pointer-events-none tracking-wide"
+          >
+            {item.label}
+          </text>
+        );
+      })}
+    </svg>
+  );
+}
+
+interface BacktestChartProps {
+  data: Prediction[];
+}
+
+export function BacktestChart({ data }: BacktestChartProps) {
+  if (!data || data.length === 0) return null;
+
+  const sortedData = [...data].sort((a, b) => new Date(a.evaluated_at).getTime() - new Date(b.evaluated_at).getTime());
+
+  const width = 280;
+  const height = 140;
+  const paddingLeft = 32;
+  const paddingRight = 10;
+  const paddingTop = 15;
+  const paddingBottom = 20;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  const actuals = sortedData.map(d => d.actual_price);
+  const targets = sortedData.map(d => d.predicted_price);
+  const allPrices = [...actuals, ...targets];
+  
+  const minPrice = Math.min(...allPrices);
+  const maxPrice = Math.max(...allPrices);
+  const priceRange = maxPrice - minPrice || 1;
+  
+  const yMin = Math.max(0, minPrice - priceRange * 0.1);
+  const yMax = maxPrice + priceRange * 0.1;
+  const yRange = yMax - yMin;
+
+  const M = sortedData.length;
+
+  const getCoords = (idx: number, price: number) => {
+    const x = paddingLeft + (idx / Math.max(1, M - 1)) * chartWidth;
+    const y = paddingTop + chartHeight - ((price - yMin) / yRange) * chartHeight;
+    return { x, y };
+  };
+
+  const actualPoints = sortedData.map((d, i) => getCoords(i, d.actual_price));
+  const targetPoints = sortedData.map((d, i) => getCoords(i, d.predicted_price));
+
+  const actualPathStr = actualPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const targetPathStr = targetPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  const targetPointsReverse = [...targetPoints].reverse();
+  const errorBandPoints = [...actualPoints, ...targetPointsReverse];
+  const errorBandPathStr = errorBandPoints.length > 0 
+    ? errorBandPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
+    : '';
+
+  const yTicks = [yMin, yMin + yRange / 2, yMax];
+
+  return (
+    <svg width={width} height={height} viewBox={"0 0 " + width + " " + height} className="overflow-visible select-none my-1">
+      {yTicks.map((val, i) => {
+        const y = paddingTop + chartHeight - ((val - yMin) / yRange) * chartHeight;
+        return (
+          <g key={"grid-" + i} className="opacity-40">
+            <line
+              x1={paddingLeft}
+              y1={y}
+              x2={width - paddingRight}
+              y2={y}
+              stroke="rgba(255,255,255,0.04)"
+              strokeDasharray="2,2"
+            />
+            <text
+              x={paddingLeft - 6}
+              y={y + 3}
+              fill="rgba(255,255,255,0.25)"
+              fontSize="8"
+              textAnchor="end"
+              className="font-mono"
+            >
+              ₹{Math.round(val)}
+            </text>
+          </g>
+        );
+      })}
+
+      {errorBandPathStr && (
+        <path
+          d={errorBandPathStr}
+          fill="rgba(99,102,241,0.06)"
+          className="pointer-events-none"
+        />
+      )}
+
+      {targetPathStr && (
+        <path
+          d={targetPathStr}
+          fill="none"
+          stroke="#818cf8"
+          strokeWidth="1.5"
+          strokeDasharray="4,3"
+          className="pointer-events-none"
+        />
+      )}
+
+      {actualPathStr && (
+        <path
+          d={actualPathStr}
+          fill="none"
+          stroke="#34d399"
+          strokeWidth="2"
+          className="pointer-events-none"
+          style={{ filter: 'drop-shadow(0 0 2px rgba(52,211,153,0.2))' }}
+        />
+      )}
+
+      {actualPoints.length > 0 && (
+        <g>
+          <circle
+            cx={actualPoints[actualPoints.length - 1].x}
+            cy={actualPoints[actualPoints.length - 1].y}
+            r="5"
+            fill="#34d399"
+            fillOpacity="0.4"
+            className="animate-ping"
+          />
+          <circle
+            cx={actualPoints[actualPoints.length - 1].x}
+            cy={actualPoints[actualPoints.length - 1].y}
+            r="3"
+            fill="#34d399"
+            stroke="#fff"
+            strokeWidth="1"
+          />
+        </g>
+      )}
+
+      {targetPoints.length > 0 && (
+        <circle
+          cx={targetPoints[targetPoints.length - 1].x}
+          cy={targetPoints[targetPoints.length - 1].y}
+          r="3"
+          fill="#818cf8"
+          stroke="#fff"
+          strokeWidth="1"
+        />
+      )}
+
+      {sortedData.length > 1 && (
+        <g className="opacity-40">
+          {[0, sortedData.length - 1].map(idx => {
+            const d = sortedData[idx];
+            const p = actualPoints[idx];
+            const dateStr = new Date(d.evaluated_at).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+            return (
+              <text
+                key={"x-lbl-" + idx}
+                x={p.x}
+                y={height - 4}
+                fill="rgba(255,255,255,0.3)"
+                fontSize="8"
+                textAnchor={idx === 0 ? 'start' : 'end'}
+                className="font-mono"
+              >
+                {dateStr}
+              </text>
+            );
+          })}
+        </g>
+      )}
+    </svg>
   );
 }

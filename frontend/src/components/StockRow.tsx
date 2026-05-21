@@ -1,4 +1,3 @@
-import React from 'react';
 import { scoreColor, fmt } from '../lib/api';
 import type { StockAnalysis } from '../lib/types';
 

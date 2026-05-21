@@ -8,7 +8,7 @@ interface SidebarProps {
   collapsed: boolean;
   onToggle: () => void;
   status: {
-    db: 'ok' | 'bad' | 'loading';
+    db: 'ok' | 'warn' | 'bad' | 'loading';
     worker: 'ok' | 'warn' | 'bad' | 'loading';
     llm: 'ok' | 'warn' | 'bad' | 'loading';
   };

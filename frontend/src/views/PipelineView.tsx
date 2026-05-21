@@ -86,7 +86,7 @@ export default function PipelineView() {
     setPrefilterResult('Running…');
     try {
       const data = await api<TaskResponse | RunResponse>(`/prefilter/run${async_task ? '?async_task=true' : ''}`, { method: 'POST' });
-      const d = data as Record<string, unknown>;
+      const d = data as unknown as Record<string, unknown>;
       if (d.task_id) {
         setPrefilterResult(`Queued: ${d.task_id}`);
         toast('Prefilter queued in Celery', 'info');

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { api } from '../lib/api';
 import type { StockAnalysis, TaskResponse } from '../lib/types';
 import AnalysisPanel from '../components/AnalysisPanel';
@@ -76,7 +76,7 @@ export default function AnalyzeView() {
 
     try {
       const data = await api<TaskResponse | StockAnalysis>(`/synthesize/${t}?async_task=true`, { method: 'POST' });
-      const resp = data as Record<string, unknown>;
+      const resp = data as unknown as Record<string, unknown>;
 
       if (resp.task_id) {
         const taskId = resp.task_id as string;
