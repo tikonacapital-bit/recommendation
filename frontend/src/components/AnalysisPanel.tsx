@@ -22,6 +22,8 @@ const recStyles: Record<string, string> = {
   HOLD: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
   AVOID: 'text-red-400 bg-red-500/10 border-red-500/30',
   PASS_TIER_1: 'text-teal-400 bg-teal-500/10 border-teal-500/30',
+  PASS_TIER_2: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30',
+  PASS_TIER_3: 'text-amber-400 bg-amber-500/10 border-amber-500/30',
   RANK_ONLY: 'text-slate-400 bg-slate-500/10 border-slate-500/30',
 };
 
@@ -130,7 +132,7 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-xl font-bold text-slate-100 font-mono">{item.name || item.ticker}</h2>
             <span className={`text-xs px-2 py-0.5 rounded-full border font-semibold ${recStyle}`}>
-              {rec.replace(/_/g, ' ')}
+              {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec.replace(/_/g, ' ')}
             </span>
           </div>
           <div className="text-sm text-slate-400 mt-1 font-mono">{item.ticker}</div>

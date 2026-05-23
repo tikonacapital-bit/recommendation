@@ -13,6 +13,8 @@ const recStyles: Record<string, string> = {
   HOLD: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
   AVOID: 'text-red-400 bg-red-500/10 border-red-500/20',
   PASS_TIER_1: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+  PASS_TIER_2: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+  PASS_TIER_3: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
   RANK_ONLY: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
 };
 
@@ -50,7 +52,7 @@ export default function StockRow({ item, rank, onClick, isSelected }: Props) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-slate-100 font-mono">{item.ticker}</span>
           <span className={`text-[10px] px-1.5 py-0.5 rounded border font-semibold uppercase tracking-wide ${recStyle}`}>
-            {rec.replace('_', ' ')}
+            {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec.replace('_', ' ')}
           </span>
         </div>
         <div className="text-xs text-slate-500 truncate mt-0.5">{item.name || '—'}</div>

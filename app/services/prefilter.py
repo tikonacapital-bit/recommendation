@@ -212,8 +212,24 @@ def _run_prefilter_from_equity_universe(
 
     df = df.sort_values("composite_score", ascending=False).reset_index(drop=True)
     df["rank"] = df.index + 1
-    tier_cutoff = max(float(df["composite_score"].quantile(0.75)), 55.0)
-    df["tier"] = (df["composite_score"] >= tier_cutoff).astype(int)
+    q75 = float(df["composite_score"].quantile(0.75))
+    q50 = float(df["composite_score"].quantile(0.50))
+    q25 = float(df["composite_score"].quantile(0.25))
+
+    tier_1_cutoff = max(q75, 55.0)
+    tier_2_cutoff = max(q50, 48.0)
+    tier_3_cutoff = max(q25, 40.0)
+
+    def get_tier(score: float) -> int | None:
+        if score >= tier_1_cutoff:
+            return 1
+        elif score >= tier_2_cutoff:
+            return 2
+        elif score >= tier_3_cutoff:
+            return 3
+        return None
+
+    df["tier"] = df["composite_score"].apply(get_tier)
 
     total = len(df)
     run = AnalysisRun(
@@ -232,14 +248,19 @@ def _run_prefilter_from_equity_universe(
             g = float(row["growth_score"])
             q = float(row["quality_score"])
 
+            # Map recommendation based on dynamic cutoff and score criteria
             if c >= 68 and g >= 55 and q >= 55:
                 rec = "BUY"
-            elif c >= 52:
+            elif c >= tier_1_cutoff:
                 rec = "PASS_TIER_1"
+            elif c >= tier_2_cutoff:
+                rec = "PASS_TIER_2"
+            elif c >= tier_3_cutoff:
+                rec = "PASS_TIER_3"
             elif c < 38:
                 rec = "AVOID"
             else:
-                rec = "PASS_TIER_1"
+                rec = "RANK_ONLY"
 
             risks = _detect_risks(row)
             catalysts = _detect_catalysts(row)
@@ -281,9 +302,16 @@ def _run_prefilter_from_equity_universe(
                 mgmt_quality_score=50.0,
                 mgmt_sentiment_score=50.0,
                 recommendation=rec,
-                tier_reached=int(row["tier"]),
+                tier_reached=int(row["tier"]) if pd.notna(row["tier"]) else None,
                 rank_in_universe=int(row["rank"]),
-                confidence_score=0.72 if rec == "BUY" else 0.55 if rec == "PASS_TIER_1" else 0.40,
+                confidence_score=(
+                    0.72 if rec == "BUY"
+                    else 0.55 if rec == "PASS_TIER_1"
+                    else 0.48 if rec == "PASS_TIER_2"
+                    else 0.42 if rec == "PASS_TIER_3"
+                    else 0.35 if rec == "AVOID"
+                    else 0.40
+                ),
                 thesis_paragraph=thesis,
                 key_risks=risks,
                 key_catalysts=catalysts,
@@ -431,8 +459,22 @@ def score_stock(stock: Stock, financial_model: FinancialModel | None) -> dict[st
     if stock.market_cap is None or stock.market_cap < MIN_MARKET_CAP:
         hard_filter_failures.append("liquidity_or_market_cap_below_minimum")
 
-    recommendation = "PASS_TIER_1" if not hard_filter_failures else "RANK_ONLY"
-    tier_reached = 1 if not hard_filter_failures else 0
+    if hard_filter_failures:
+        recommendation = "RANK_ONLY"
+        tier_reached = None
+    else:
+        if composite_score >= 55.0:
+            recommendation = "PASS_TIER_1"
+            tier_reached = 1
+        elif composite_score >= 48.0:
+            recommendation = "PASS_TIER_2"
+            tier_reached = 2
+        elif composite_score >= 40.0:
+            recommendation = "PASS_TIER_3"
+            tier_reached = 3
+        else:
+            recommendation = "RANK_ONLY"
+            tier_reached = None
 
     return {
         "composite_score": round(composite_score, 2),
@@ -445,7 +487,13 @@ def score_stock(stock: Stock, financial_model: FinancialModel | None) -> dict[st
         "sector_score": None,
         "recommendation": recommendation,
         "tier_reached": tier_reached,
-        "confidence_score": 0.45 if financial_model else 0.25,
+        "confidence_score": (
+            0.55 if recommendation == "PASS_TIER_1"
+            else 0.48 if recommendation == "PASS_TIER_2"
+            else 0.42 if recommendation == "PASS_TIER_3"
+            else 0.25 if financial_model
+            else 0.15
+        ),
         "thesis_paragraph": (
             f"{stock.ticker} passed the deterministic Tier 1 screen and is ready for agent review."
             if not hard_filter_failures

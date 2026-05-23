@@ -15,6 +15,8 @@ const recStyles: Record<string, string> = {
   HOLD: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
   AVOID: 'text-red-400 bg-red-500/10 border-red-500/20',
   PASS_TIER_1: 'text-teal-400 bg-teal-500/10 border-teal-500/20',
+  PASS_TIER_2: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20',
+  PASS_TIER_3: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
   RANK_ONLY: 'text-slate-400 bg-slate-500/10 border-slate-500/20',
 };
 
@@ -595,7 +597,7 @@ export default function UniverseView({ onSelectTicker }: Props) {
                         {/* Rec badge */}
                         <td className="px-3 py-2.5 text-center">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide ${recStyle}`}>
-                            {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'RANK_ONLY' ? 'Rank' : rec}
+                            {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec}
                           </span>
                         </td>
                       </tr>
@@ -744,7 +746,7 @@ function CompareModal({ items, onClose, onRemoveTicker }: CompareModalProps) {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <h3 className="text-base font-bold font-mono text-slate-100">{item.ticker}</h3>
                         <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide ${recStyle}`}>
-                          {rec.replace(/_/g, ' ')}
+                          {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec.replace(/_/g, ' ')}
                         </span>
                       </div>
                       <p className="text-slate-400 text-xs truncate mt-0.5">{item.name || '—'}</p>
