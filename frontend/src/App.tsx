@@ -6,9 +6,11 @@ import DashboardView from './views/DashboardView';
 import UniverseView from './views/UniverseView';
 import AnalyzeView from './views/AnalyzeView';
 import PipelineView from './views/PipelineView';
+import PredictionsView from './views/PredictionsView';
+import ChartsView from './views/ChartsView';
 import { api } from './lib/api';
 
-type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline';
+type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline' | 'predictions' | 'charts';
 
 type StatusLevel = 'ok' | 'warn' | 'bad' | 'loading';
 
@@ -81,7 +83,7 @@ function AppInner() {
       />
 
       {/* Main */}
-      <div className={`relative z-10 min-h-screen flex flex-col transition-all duration-300 ${sidebarWidth}`}>
+      <div className={`relative min-h-screen flex flex-col transition-all duration-300 ${sidebarWidth}`}>
         {/* Topbar */}
         <header className="sticky top-0 z-20 glass border-b border-white/[0.07] px-4 lg:px-6 py-3">
           <div className="flex items-center justify-between gap-4">
@@ -184,19 +186,29 @@ function AppInner() {
 
         {/* Content */}
         <main className="flex-1 px-4 lg:px-6 py-6">
-          {view === 'dashboard' && (
+          <div className={view === 'dashboard' ? 'block' : 'hidden'}>
             <DashboardView tickerInput={ticker} onTickerChange={setTicker} />
-          )}
-          {view === 'universe' && (
+          </div>
+          <div className={view === 'universe' ? 'block' : 'hidden'}>
             <UniverseView
               onSelectTicker={(t) => {
                 setTicker(t);
                 setView('dashboard');
               }}
             />
-          )}
-          {view === 'analyze' && <AnalyzeView />}
-          {view === 'pipeline' && <PipelineView />}
+          </div>
+          <div className={view === 'analyze' ? 'block' : 'hidden'}>
+            <AnalyzeView />
+          </div>
+          <div className={view === 'pipeline' ? 'block' : 'hidden'}>
+            <PipelineView />
+          </div>
+          <div className={view === 'predictions' ? 'block' : 'hidden'}>
+            <PredictionsView />
+          </div>
+          <div className={view === 'charts' ? 'block' : 'hidden'}>
+            <ChartsView />
+          </div>
         </main>
       </div>
 

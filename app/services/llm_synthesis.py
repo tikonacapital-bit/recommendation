@@ -183,11 +183,12 @@ def call_llm_robust(prompt: str, max_retries: int = 5) -> str:
             # Curious list of standard high-quality OpenRouter free models
             models = [
                 primary_model,
-                "google/gemini-2.5-flash:free",
                 "meta-llama/llama-3.3-70b-instruct:free",
-                "qwen/qwen-2.5-coder-32b-instruct:free",
-                "deepseek/deepseek-r1:free",
-                "mistralai/mistral-7b-instruct:free"
+                "google/gemma-4-31b-it:free",
+                "google/gemma-4-26b-a4b-it:free",
+                "qwen/qwen3-coder:free",
+                "deepseek/deepseek-v4-flash:free",
+                "meta-llama/llama-3.2-3b-instruct:free"
             ]
 
     # Deduplicate while preserving order
@@ -240,16 +241,36 @@ def call_llm_robust(prompt: str, max_retries: int = 5) -> str:
 
 
 def synthesize_latest_analysis(db: Session, ticker: str) -> StockAnalysis:
-    analysis = _latest_analysis(db, ticker)
-    stock = analysis.stock
+    # Quick database read: pull required metadata and immediately release the transaction
+    analysis_id = None
+    try:
+        analysis = _latest_analysis(db, ticker)
+        analysis_id = analysis.id
+        stock_ticker = analysis.stock.ticker
+        stock_sector = analysis.stock.sector or "General"
+        tech_score = analysis.technical_score or 50.0
+        health_score = analysis.sector_score or 50.0
+        growth_score = analysis.growth_score or 50.0
+        quality_score = analysis.durability_score or 50.0
+        valuation_score = analysis.valuation_score or 50.0
+        pre_existing_outputs = analysis.agent_outputs or {}
+        pre_existing_risks = analysis.key_risks or []
+        pre_existing_catalysts = analysis.key_catalysts or []
+        pre_existing_target_prices = analysis.target_prices or {}
+        pre_existing_recommendation = analysis.recommendation or "RANK_ONLY"
+        pre_existing_composite = analysis.composite_score or 50.0
+    finally:
+        # Commit/close this transaction immediately so the connection is not left idle
+        db.commit()
+        db.close()
 
     from app.agents.graph import graph
 
-    # Initial state
+    # Initial state for sequential rate-limited graph
     state = {
-        "ticker": stock.ticker,
-        "sector": stock.sector or "General",
-        "technical_score": analysis.technical_score or 50.0,
+        "ticker": stock_ticker,
+        "sector": stock_sector,
+        "technical_score": tech_score,
         "agent_a_output": {},
         "agent_b_output": {},
         "agent_c_output": {},
@@ -257,119 +278,142 @@ def synthesize_latest_analysis(db: Session, ticker: str) -> StockAnalysis:
         "synthesis_output": {},
     }
 
-    # Run LangGraph
-    final_state = graph.invoke(state)
+    # Run LangGraph with rate-limit and credit-exhaustion resilience
+    try:
+        final_state = graph.invoke(state)
+        synthesis_data = final_state.get("synthesis_output", {})
+    except Exception as exc:
+        print(f"[synthesis] LangGraph call failed or was rate-limited: {exc}. Gracefully falling back to deterministic quantitative synthesis.")
+        final_state = {}
+        synthesis_data = {}
 
-    synthesis_data = final_state.get("synthesis_output", {})
     from app.agents.schemas import SynthesisOutput
     
-    # In case of missing synthesis data
-    if not synthesis_data:
-        synthesis_data = {
-            "composite_score": 50,
-            "recommendation": "RANK_ONLY",
-            "thesis_paragraph": "Graph execution failed to produce output.",
-            "confidence_score": 0,
-            "target_prices": {}
+    # Re-open a brand new fresh database connection to execute the write-back in a millisecond-long transaction
+    from app.core.db import SessionLocal
+    write_db = SessionLocal()
+    try:
+        analysis = write_db.query(StockAnalysis).filter(StockAnalysis.id == analysis_id).first()
+        stock = analysis.stock
+        
+        # Build quantitative fallback values if LLM gateway failed
+        if not synthesis_data:
+            thesis_val = (
+                f"AI synthesis is temporarily offline due to upstream provider rate limits. "
+                f"Failing over gracefully to a quantitative rating profile for **{ticker}** within the **{stock_sector}** sector. "
+                f"Overall, the company holds a composite score of **{pre_existing_composite:.1f}** out of 100, driven by a "
+                f"Growth score of **{growth_score:.0f}**, Quality and Durability of **{quality_score:.0f}**, "
+                f"Valuation rating of **{valuation_score:.0f}**, Momentum score of **{tech_score:.0f}**, "
+                f"and general Sector Health indicator of **{health_score:.0f}**."
+            )
+            synthesis_data = {
+                "composite_score": pre_existing_composite,
+                "recommendation": pre_existing_recommendation,
+                "thesis_paragraph": thesis_val,
+                "confidence_score": 35.0,
+                "key_risks": pre_existing_risks or ["upstream_llm_rate_limiting"],
+                "key_catalysts": pre_existing_catalysts or [],
+                "target_prices": pre_existing_target_prices or {"bear": 0.0, "base": 0.0, "bull": 0.0}
+            }
+            
+        synthesis = SynthesisOutput.model_validate(synthesis_data)
+
+        analysis.composite_score = round(synthesis.composite_score, 2)
+        analysis.recommendation = synthesis.recommendation
+        analysis.thesis_paragraph = synthesis.thesis_paragraph
+        analysis.key_risks = synthesis.key_risks
+        analysis.key_catalysts = synthesis.key_catalysts
+        analysis.target_prices = synthesis.target_prices
+        analysis.confidence_score = round(synthesis.confidence_score / 100, 2)
+        
+        # Store Agent outputs
+        analysis.agent_outputs = {
+            **pre_existing_outputs,
+            "agent_a": final_state.get("agent_a_output", {}) if final_state else {},
+            "agent_b": final_state.get("agent_b_output", {}) if final_state else {},
+            "agent_c": final_state.get("agent_c_output", {}) if final_state else {},
+            "agent_d": final_state.get("agent_d_output", {}) if final_state else {},
+            "llm_synthesis": {
+                "provider": _provider(),
+                "model": os.getenv("ANTHROPIC_MODEL") or os.getenv("OPENROUTER_MODEL") or os.getenv("LLM_MODEL"),
+                "output": synthesis.model_dump(),
+                "rate_limited_fallback": not final_state,
+            },
         }
         
-    synthesis = SynthesisOutput.model_validate(synthesis_data)
+        # Update individual scores based on Agent outputs if they exist
+        if final_state:
+            agent_a = final_state.get("agent_a_output", {})
+            if "growth_score" in agent_a:
+                analysis.growth_score = agent_a["growth_score"]
+            if "durability_score" in agent_a:
+                analysis.durability_score = agent_a["durability_score"]
+            if "mgmt_quality_score" in agent_a:
+                analysis.mgmt_quality_score = agent_a["mgmt_quality_score"]
 
-    existing_outputs = analysis.agent_outputs or {}
-    analysis.composite_score = round(synthesis.composite_score, 2)
-    analysis.recommendation = synthesis.recommendation
-    analysis.thesis_paragraph = synthesis.thesis_paragraph
-    analysis.key_risks = synthesis.key_risks
-    analysis.key_catalysts = synthesis.key_catalysts
-    analysis.target_prices = synthesis.target_prices
-    analysis.confidence_score = round(synthesis.confidence_score / 100, 2)
-    
-    # Store Agent outputs
-    analysis.agent_outputs = {
-        **existing_outputs,
-        "agent_a": final_state.get("agent_a_output", {}),
-        "agent_b": final_state.get("agent_b_output", {}),
-        "agent_c": final_state.get("agent_c_output", {}),
-        "agent_d": final_state.get("agent_d_output", {}),
-        "llm_synthesis": {
-            "provider": _provider(),
-            "model": os.getenv("ANTHROPIC_MODEL") or os.getenv("OPENROUTER_MODEL") or os.getenv("LLM_MODEL"),
-            "output": synthesis.model_dump(),
-        },
-    }
-    
-    # Also update individual scores based on Agent outputs if they exist
-    agent_a = final_state.get("agent_a_output", {})
-    if "growth_score" in agent_a:
-        analysis.growth_score = agent_a["growth_score"]
-    if "durability_score" in agent_a:
-        analysis.durability_score = agent_a["durability_score"]
-    if "mgmt_quality_score" in agent_a:
-        analysis.mgmt_quality_score = agent_a["mgmt_quality_score"]
+            agent_b = final_state.get("agent_b_output", {})
+            if "sector_score" in agent_b:
+                analysis.sector_score = agent_b["sector_score"]
 
-    agent_b = final_state.get("agent_b_output", {})
-    if "sector_score" in agent_b:
-        analysis.sector_score = agent_b["sector_score"]
+            agent_c = final_state.get("agent_c_output", {})
+            if "mgmt_sentiment_score" in agent_c:
+                analysis.mgmt_sentiment_score = agent_c["mgmt_sentiment_score"]
 
-    agent_c = final_state.get("agent_c_output", {})
-    if "mgmt_sentiment_score" in agent_c:
-        analysis.mgmt_sentiment_score = agent_c["mgmt_sentiment_score"]
-
-    agent_d = final_state.get("agent_d_output", {})
-    if "valuation_score" in agent_d:
-        analysis.valuation_score = agent_d["valuation_score"]
-
-    db.commit()
-    db.refresh(analysis)
-
-    # ── structured evidence harvesting & auditing registry ───────────────────
-    try:
-        from app.models.models import EvidenceRegistry, Document
-        
-        # Clean up existing evidence for this analysis to avoid duplicates on re-runs
-        db.query(EvidenceRegistry).filter(EvidenceRegistry.analysis_id == analysis.id).delete()
-        
-        # Collect evidence from all sub-agents
-        agents_keys = ["agent_a", "agent_b", "agent_c", "agent_d"]
-        for agent_key in agents_keys:
-            # We fetch from analysis.agent_outputs (since they were saved as dicts) or final_state
-            agent_out = analysis.agent_outputs.get(agent_key) or {}
-            evidence_list = agent_out.get("evidence") or []
-            for item in evidence_list:
-                quote_str = item.get("quote") or ""
-                source_str = item.get("source") or ""
-                pillar_str = item.get("pillar") or ""
+            agent_d = final_state.get("agent_d_output", {})
+            if "valuation_score" in agent_d:
+                analysis.valuation_score = agent_d["valuation_score"]
                 
-                if not quote_str:
-                    continue
+        write_db.commit()
+        write_db.refresh(analysis)
+
+        # ── structured evidence harvesting & auditing registry ───────────────────
+        try:
+            from app.models.models import EvidenceRegistry, Document
+            
+            # Clean up existing evidence for this analysis to avoid duplicates on re-runs
+            write_db.query(EvidenceRegistry).filter(EvidenceRegistry.analysis_id == analysis.id).delete()
+            
+            # Collect evidence from all sub-agents
+            agents_keys = ["agent_a", "agent_b", "agent_c", "agent_d"]
+            for agent_key in agents_keys:
+                agent_out = analysis.agent_outputs.get(agent_key) or {}
+                evidence_list = agent_out.get("evidence") or []
+                for item in evidence_list:
+                    quote_str = item.get("quote") or ""
+                    source_str = item.get("source") or ""
+                    pillar_str = item.get("pillar") or ""
                     
-                # Attempt to resolve source_doc_id
-                source_doc_id = None
-                if source_str:
-                    try:
-                        # If it's a numeric ID
-                        source_doc_id = int(source_str)
-                    except ValueError:
-                        # Search for document of this stock that matches source_str
-                        doc = db.query(Document).filter(
-                            Document.stock_id == stock.id,
-                            (Document.quarter.ilike(f"%{source_str}%")) | (Document.doc_type.ilike(f"%{source_str}%"))
-                        ).first()
-                        if doc:
-                            source_doc_id = doc.id
-                
-                ev_record = EvidenceRegistry(
-                    analysis_id=analysis.id,
-                    quote=quote_str,
-                    source_doc_id=source_doc_id,
-                    pillar=pillar_str
-                )
-                db.add(ev_record)
-                
-        db.commit()
-    except Exception as e:
-        print(f"[synthesis] Failed to harvest and save evidence: {e}")
-        db.rollback()
+                    if not quote_str:
+                        continue
+                        
+                    # Attempt to resolve source_doc_id
+                    source_doc_id = None
+                    if source_str:
+                        try:
+                            source_doc_id = int(source_str)
+                        except ValueError:
+                            # Search for document of this stock that matches source_str
+                            doc = write_db.query(Document).filter(
+                                Document.stock_id == stock.id,
+                                (Document.quarter.ilike(f"%{source_str}%")) | (Document.doc_type.ilike(f"%{source_str}%"))
+                            ).first()
+                            if doc:
+                                source_doc_id = doc.id
+                    
+                    ev_record = EvidenceRegistry(
+                        analysis_id=analysis.id,
+                        quote=quote_str,
+                        source_doc_id=source_doc_id,
+                        pillar=pillar_str
+                    )
+                    write_db.add(ev_record)
+                    
+            write_db.commit()
+        except Exception as e:
+            print(f"[synthesis] Failed to harvest and save evidence: {e}")
+            write_db.rollback()
 
-    db.refresh(analysis)
-    return analysis
+        write_db.refresh(analysis)
+        return analysis
+    finally:
+        write_db.close()

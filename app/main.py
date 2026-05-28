@@ -402,3 +402,95 @@ def get_stock_predictions(ticker: str, db: Session = Depends(get_db)) -> dict:
             } for item in items
         ]
     }
+
+
+@app.get("/stock/{ticker}/financials")
+def get_stock_financials(ticker: str, db: Session = Depends(get_db)) -> dict:
+    from app.models.models import Stock, FinancialModel
+    from sqlalchemy import text
+    stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+    if not stock:
+        raise HTTPException(status_code=404, detail=f"Unknown ticker: {ticker}")
+        
+    # 1. Try equity_universe for rich historical data
+    nse_code = ticker.upper().removesuffix(".NS")
+    try:
+        row = db.execute(text("""
+            SELECT revenue_fy2023, revenue_fy2024, revenue_fy2025, revenue_ttm,
+                   pat_fy2023, pat_fy2024, pat_fy2025, pat_ttm,
+                   ebitda_fy2023, ebitda_fy2024, ebitda_fy2025, ebitda_ttm
+            FROM equity_universe WHERE nse_code = :code LIMIT 1
+        """), {"code": nse_code}).fetchone()
+        
+        if row:
+            def _f(v):
+                try:
+                    return float(v) if v is not None else 0.0
+                except (TypeError, ValueError):
+                    return 0.0
+            return {
+                "ticker": ticker.upper(),
+                "revenue": {"FY23": _f(row[0]), "FY24": _f(row[1]), "FY25": _f(row[2]), "TTM": _f(row[3])},
+                "pat": {"FY23": _f(row[4]), "FY24": _f(row[5]), "FY25": _f(row[6]), "TTM": _f(row[7])},
+                "ebitda": {"FY23": _f(row[8]), "FY24": _f(row[9]), "FY25": _f(row[10]), "TTM": _f(row[11])}
+            }
+    except Exception as e:
+        print(f"Error querying financials from equity_universe: {e}")
+        
+    # 2. Fallback to FinancialModel (yfinance)
+    fm = db.query(FinancialModel).filter(FinancialModel.stock_id == stock.id).order_by(desc(FinancialModel.updated_at)).first()
+    if fm and fm.data:
+        inc = fm.data.get("income_statement", {})
+        rev = inc.get("Total Revenue", {})
+        return {
+            "ticker": ticker.upper(),
+            "revenue": {str(k)[:10]: float(v) for k, v in sorted(rev.items()) if v is not None},
+            "pat": {},
+            "ebitda": {}
+        }
+        
+    return {
+        "ticker": ticker.upper(),
+        "revenue": {},
+        "pat": {},
+        "ebitda": {}
+    }
+
+
+@app.get("/stock/{ticker}/candles")
+def get_stock_candles(ticker: str, period: str = Query(default="1y", description="Time period, e.g. 1mo, 3mo, 6mo, 1y")) -> dict:
+    """Fetch historical stock price data for candlestick charting."""
+    import yfinance as yf
+    normalized = ticker.upper().trim() if hasattr(ticker, "trim") else ticker.upper().strip()
+    
+    # If standard NSE ticker lacks .NS, add it
+    if not normalized.endswith(".NS") and not normalized.endswith(".BO") and not ":" in normalized:
+      normalized = f"{normalized}.NS"
+
+    try:
+        t = yf.Ticker(normalized)
+        hist = t.history(period=period)
+        if hist.empty:
+            # Try once without suffix in case it's a global asset like AAPL or BTC-USD
+            if normalized.endswith(".NS"):
+                t = yf.Ticker(normalized.replace(".NS", ""))
+                hist = t.history(period=period)
+            
+            if hist.empty:
+                return {"ticker": normalized, "candles": []}
+
+        candles = []
+        for idx, row in hist.iterrows():
+            candles.append({
+                "time": idx.strftime("%Y-%m-%d"),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+                "volume": float(row["Volume"]) if "Volume" in row else 0.0
+            })
+        return {"ticker": normalized, "candles": candles}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+

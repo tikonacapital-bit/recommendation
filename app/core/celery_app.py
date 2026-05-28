@@ -33,6 +33,13 @@ def create_celery_app():
         enable_utc=True,
         worker_prefetch_multiplier=1,
         task_acks_late=True,
+        # Performance & stability tunings
+        task_time_limit=180,           # Hard timeout: kill task after 3 minutes
+        task_soft_time_limit=150,      # Soft timeout: raise SoftTimeLimitExceeded after 2.5 minutes
+        worker_max_tasks_per_child=50, # Recycle worker child processes after 50 tasks to clear memory leaks
+        broker_connection_retry_on_startup=True,
+        task_publish_retry=True,
+        result_expires=1800,           # Keep results in Redis for 30 minutes to prevent memory bloating
     )
     return celery_app
 

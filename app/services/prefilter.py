@@ -265,21 +265,59 @@ def _run_prefilter_from_equity_universe(
             risks = _detect_risks(row)
             catalysts = _detect_catalysts(row)
 
-            # One-line quantitative snapshot as thesis
+            # Clean human-readable quantitative snapshot as thesis
             def _f(v: Any, fmt: str = ".1f", suffix: str = "") -> str:
                 f = _safe_float(v)
-                return f"{f:{fmt}}{suffix}" if f is not None else "N/A"
+                return f"**{f:{fmt}}{suffix}**" if f is not None else "**N/A**"
+            
+            ticker_clean = str(row['ticker']).removesuffix('.NS')
+            sector_clean = row['sector'] or 'General'
+            
+            # Formulate growth commentary
+            rev_cagr_val = _safe_float(row.get('rev_cagr'))
+            if rev_cagr_val is not None:
+                if rev_cagr_val > 25:
+                    growth_comment = f"an exceptional revenue growth CAGR of **{rev_cagr_val:.1f}%**"
+                elif rev_cagr_val > 12:
+                    growth_comment = f"a strong revenue growth CAGR of **{rev_cagr_val:.1f}%**"
+                elif rev_cagr_val > 0:
+                    growth_comment = f"a stable revenue growth CAGR of **{rev_cagr_val:.1f}%**"
+                else:
+                    growth_comment = f"a flat revenue CAGR of **{rev_cagr_val:.1f}%**"
+            else:
+                growth_comment = "stable baseline growth metrics"
+                
+            # Formulate profitability commentary
+            roic_val = _safe_float(row.get('roic'))
+            roe_val = _safe_float(row.get('roe'))
+            if roic_val is not None and roic_val > 15:
+                profit_comment = f"stellar capital efficiency, boasting an ROIC of **{roic_val:.1f}%** and ROE of **{roe_val:.1f}%**" if roe_val is not None else f"stellar capital efficiency, boasting an ROIC of **{roic_val:.1f}%**"
+            elif roic_val is not None:
+                profit_comment = f"moderate capital returns, with an ROIC of **{roic_val:.1f}%** and ROE of **{roe_val:.1f}%**" if roe_val is not None else f"moderate capital returns with an ROIC of **{roic_val:.1f}%**"
+            else:
+                profit_comment = "stable returns on capital parameters"
+
+            # Formulate momentum commentary
+            ret_3m_val = _safe_float(row.get('ret_3m'))
+            if ret_3m_val is not None:
+                if ret_3m_val > 15:
+                    momentum_comment = f"has delivered a highly robust positive return of **{ret_3m_val:.1f}%**"
+                elif ret_3m_val > 0:
+                    momentum_comment = f"has delivered a positive return of **{ret_3m_val:.1f}%**"
+                else:
+                    momentum_comment = f"has seen a decline of **{ret_3m_val:.1f}%**"
+            else:
+                momentum_comment = "has maintained steady trading momentum"
 
             thesis = (
-                f"{str(row['ticker']).removesuffix('.NS')} | {row['sector']}. "
-                f"Rev CAGR {_f(row['rev_cagr'], '.1f', '%')} | "
-                f"ROIC {_f(row['roic'], '.1f', '%')} | ROE {_f(row['roe'], '.1f', '%')} | "
-                f"Fwd PE {_f(row['pe_fwd'], '.1f', 'x')} | "
-                f"Consensus upside {_f(row['consensus_upside'], '.0f', '%')} | "
-                f"3m return {_f(row['ret_3m'], '.1f', '%')}. "
-                f"Score {c:.1f} → Growth {g:.0f} | Quality {q:.0f} | "
-                f"Valuation {row['valuation_score']:.0f} | "
-                f"Momentum {row['momentum_score']:.0f} | Health {row['health_score']:.0f}."
+                f"**{ticker_clean}** is an active participant in the **{sector_clean}** sector. "
+                f"Over the last 2 years, the company has demonstrated {growth_comment}, coupled with {profit_comment}. "
+                f"Valuations reflect a forward P/E of {_f(row['pe_fwd'], '.1f', 'x')} "
+                f"with a consensus target upside of {_f(row['consensus_upside'], '.0f', '%')}. "
+                f"On the momentum front, the stock {momentum_comment} over the last 3 months. "
+                f"Overall, the company achieves a solid composite rating score of **{c:.1f}** out of 100, driven by a balanced combination of "
+                f"Growth: **{g:.0f}**, Quality: **{q:.0f}**, Valuation: **{row['valuation_score']:.0f}**, "
+                f"Momentum: **{row['momentum_score']:.0f}**, and Financial Health: **{row['health_score']:.0f}**."
             )
 
             target_prices: dict = {}

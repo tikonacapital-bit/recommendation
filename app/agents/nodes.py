@@ -173,9 +173,17 @@ def run_agent_a_fundamentals(state: dict) -> dict:
     fin_data = _fetch_financial_snippet(ticker)
 
     prompt = (
-        "You are Agent A, an equity fundamentals analyst for the Indian stock market. "
-        "Analyse the supplied financial data and return STRICT JSON matching the schema below. "
-        "Score every metric 0-100. Do NOT hallucinate numbers. "
+        "You are Agent A, a rigorous institutional-grade equity fundamentals analyst specializing in the Indian stock market.\n"
+        "Your objective is to analyze the supplied financial data thoroughly and score key fundamental pillars. "
+        "Return STRICT JSON matching the provided schema. Do NOT hallucinate or make up any numbers.\n\n"
+        "Scoring Guidelines (0-100):\n"
+        "- Growth Score: Assess revenue, EBITDA, and PAT CAGRs. 2-year CAGR > 20% earns 80-95. CAGR 10-20% earns 60-80. Negative or stagnant growth should be scored below 40.\n"
+        "- Durability Score (Quality): Evaluate return ratios (ROE, ROIC, ROCE) and promoter holdings. Return ratios > 18-20% combined with stable promoter holdings (>50%) indicates high quality (score 80-95). Debt-to-Equity net leverage > 3.0x reduces durability heavily.\n"
+        "- Management Quality Score: Review promoter shareholding levels, leverage management, and overall operational consistency. Low promoter shareholding (<35%) or massive debt-to-worth levels reflect lower management quality (score below 45).\n\n"
+        "Instructions:\n"
+        "1. Write a highly analytical, dense summary highlighting specific CAGRs, return ratios, and balance sheet strength.\n"
+        "2. Identify internal tensions (contradictory indicators, e.g., high revenue growth but declining margins, or high profitability but excessive debt).\n"
+        "3. Provide direct evidence item(s) from the data. Set 'source' to 'Financial Data' and 'pillar' to 'Fundamentals'.\n\n"
         f"Schema: {_schema_hint(FundamentalsOutput)}\n\n"
         f"Stock: {ticker}\n"
         f"Financial data: {json.dumps(fin_data, default=str)[:2000]}"
@@ -196,17 +204,81 @@ def run_agent_a_fundamentals(state: dict) -> dict:
 
 # ─────────────────────────── Agent B — Sector Specialist ─────────────────────
 
+def _get_sector_analyst_instructions(sector: str) -> str:
+    s = sector.lower()
+    if any(k in s for k in ("bank", "finan", "bfsi", "capital", "insurance", "investment")):
+        return (
+            "You are a highly analytical BFSI (Banking & Financial Services) specialist.\n"
+            "Assess operational health and assign a 'sector_score' based on standard Indian banking benchmarks:\n"
+            "- Net Interest Margin (NIM) trends (margins >3.5% indicate strong pricing power).\n"
+            "- Asset quality: Gross NPA (<3.0% is healthy, >5.0% is high risk) and Net NPA trends.\n"
+            "- Provision Coverage Ratio (PCR) (levels >70% indicate robust safety buffers).\n"
+            "- Capital adequacy: CET-1 and CAR ratios against regulatory norms.\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+    elif any(k in s for k in ("tech", "software", "information", "it ", "telecom")):
+        return (
+            "You are an expert Technology and IT services analyst.\n"
+            "Assess operational quality and assign a 'sector_score' based on software sector KPIs:\n"
+            "- Constant Currency (CC) growth (growth >12-15% is strong in the current environment).\n"
+            "- Deal pipeline: Large deal TCV trends and client tier expansion.\n"
+            "- HR metrics: LTM attrition levels (stable attrition is <15%) and offshore/onshore delivery mix.\n"
+            "- Generative AI pipeline and digital offerings velocity.\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+    elif any(k in s for k in ("pharma", "health", "bio", "hospital", "medical")):
+        return (
+            "You are a specialized Healthcare and Pharmaceuticals analyst.\n"
+            "Assess regulatory and commercial health to assign a 'sector_score' using these parameters:\n"
+            "- USFDA compliance: Facility inspection ratings, warning letters, or import alerts (severe risks).\n"
+            "- Pipeline strength: ANDA filings, key approvals, and generic/biosimilar launch schedules.\n"
+            "- Cost and mix: R&D expenses as % of sales and domestic formulation vs export revenue split.\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+    elif any(k in s for k in ("consumer", "fmcg", "retail", "food", "beverage", "brand")):
+        return (
+            "You are a veteran FMCG & Consumer Retail specialist.\n"
+            "Assess pricing power and logistics efficiency to assign a 'sector_score' using:\n"
+            "- Volume growth vs pricing growth (real volume growth >5-8% is key to long-term health).\n"
+            "- Gross margin expansion and vulnerability to raw material costs (palm oil, crude, packaging).\n"
+            "- Distribution reach: Omnichannel contribution (quick-commerce and e-commerce penetration).\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+    elif any(k in s for k in ("auto", "vehicle", "manufacturing", "industrial", "steel", "cement", "metal", "power", "energy")):
+        return (
+            "You are an expert Industrials & Manufacturing sector specialist.\n"
+            "Assess capital allocation and operating leverage to assign a 'sector_score' using:\n"
+            "- Capacity utilization rates (>75-80% reflects strong market demand triggering operating leverage).\n"
+            "- Input commodity price volatility (steel, rubber, coking coal) impacting EBITDA margins.\n"
+            "- Order book visibility: Book-to-bill ratios and Capex gestation timelines.\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+    else:
+        return (
+            "You are a general Equity Sector Analyst.\n"
+            "Assess competitive positioning and assign a 'sector_score' by analyzing:\n"
+            "- Market share expansion or contraction against direct competitors.\n"
+            "- Pricing power and presence of clear economic moats.\n"
+            "- Capex efficiency, ROCE trends, and industrial cycle tailwinds/headwinds.\n"
+            "Return these precise parsed metrics in your 'sector_kpis' dictionary."
+        )
+
 def run_agent_b_sector(state: dict) -> dict:
     ticker = state.get("ticker", "UNKNOWN")
     sector = state.get("sector", "General")
     fin_data = _fetch_financial_snippet(ticker)
+    
+    # Fetch high-fidelity sector specialist instructions
+    sector_instructions = _get_sector_analyst_instructions(sector)
 
     prompt = (
-        f"You are Agent B, a sector specialist for the {sector} sector in the Indian market. "
-        "Analyse the supplied data and return STRICT JSON matching the schema. "
+        f"You are Agent B, a sector specialist for the {sector} sector in the Indian market.\n"
+        f"Instructions: {sector_instructions}\n"
+        "Analyze the supplied financial snippet and return STRICT JSON matching the schema.\n"
+        "Your 'sector_kpis' dictionary should contain the exact numeric or string metrics analyzed (e.g., NIM, TCV, Attrition, warning_letters, gross_margin, capacity_utilization, etc.).\n"
         f"Schema: {_schema_hint(SectorSpecialistOutput)}\n\n"
         f"Stock: {ticker}  Sector: {sector}\n"
-        f"Financial data: {json.dumps(fin_data, default=str)[:1500]}"
+        f"Financial data: {json.dumps(fin_data, default=str)[:2000]}"
     )
 
     try:
@@ -224,16 +296,100 @@ def run_agent_b_sector(state: dict) -> dict:
 
 # ─────────────────────────── Agent C — Management Sentiment ──────────────────
 
+def _retrieve_concall_chunks(ticker: str) -> list[dict]:
+    """
+    Perform a vector similarity search (using pgvector) to fetch relevant concall transcript chunks
+    for a given ticker. Gracefully falls back to chronological chunk loading if similarity search fails.
+    Returns a list of dictionaries with 'content' and 'doc_id'.
+    """
+    from app.core.db import SessionLocal
+    from app.models.models import Stock, Document, DocumentChunk
+    from app.services.embeddings import get_embedding
+    
+    db = SessionLocal()
+    chunks = []
+    try:
+        # 1. Check if stock exists
+        stock = db.query(Stock).filter(Stock.ticker == ticker.upper()).first()
+        if not stock:
+            return []
+            
+        # 2. Compute query embedding focusing on management sentiment & outlook
+        query_str = f"{ticker} earnings call management sentiment guidance revenue margin trajectory outlook"
+        query_emb = get_embedding(query_str)
+        
+        # 3. Query pgvector similarity search
+        try:
+            cosine_dist = DocumentChunk.embedding.cosine_distance(query_emb)
+            results = (
+                db.query(DocumentChunk, Document.quarter)
+                .join(Document, DocumentChunk.document_id == Document.id)
+                .filter(Document.stock_id == stock.id)
+                .order_by(cosine_dist)
+                .limit(4)
+                .all()
+            )
+            for res_chunk, quarter in results:
+                chunks.append({
+                    "content": res_chunk.content,
+                    "doc_id": str(res_chunk.document_id),
+                    "quarter": quarter
+                })
+        except Exception as e:
+            # Fallback to fetching latest chunks chronologically
+            print(f"[nodes] Vector similarity search failed: {e}. Falling back to chronological chunk loading.")
+            results = (
+                db.query(DocumentChunk, Document.quarter)
+                .join(Document, DocumentChunk.document_id == Document.id)
+                .filter(Document.stock_id == stock.id)
+                .order_by(DocumentChunk.id.desc())
+                .limit(4)
+                .all()
+            )
+            for res_chunk, quarter in results:
+                chunks.append({
+                    "content": res_chunk.content,
+                    "doc_id": str(res_chunk.document_id),
+                    "quarter": quarter
+                })
+    except Exception as e:
+        print(f"[nodes] Failed to retrieve concall chunks: {e}")
+    finally:
+        db.close()
+    return chunks
+
+
 def run_agent_c_sentiment(state: dict) -> dict:
     ticker = state.get("ticker", "UNKNOWN")
+    
+    # Fetch live chunks using our pgvector RAG retriever
+    chunks = _retrieve_concall_chunks(ticker)
+    
+    if chunks:
+        context_str = "\n\n".join([
+            f"--- Chunk from Document ID {c['doc_id']} ({c['quarter']}) ---\n{c['content']}"
+            for c in chunks
+        ])
+        note_str = "Analyze the live concall transcript chunks supplied below to ground your sentiment score, guidance changes, and red flags."
+    else:
+        context_str = "No live concall transcript data found in database for this ticker."
+        note_str = "No live concall data supplied in context. Warn about this in the summary, and evaluate using your general historical knowledge of the company."
 
     prompt = (
-        "You are Agent C, a management sentiment analyst. "
-        "Based on your knowledge of this Indian listed company's recent earnings calls and management commentary, "
-        "provide a sentiment assessment. Return STRICT JSON matching the schema. "
+        "You are Agent C, a highly skeptical and investigative management sentiment analyst.\n"
+        "Your goal is to parse the supplied earnings call transcripts and evaluate management's candor, optimism, and forward guidance accuracy. "
+        "Return STRICT JSON matching the schema.\n\n"
+        "Evaluation Instructions:\n"
+        "- Guidance Changes: Identify if management has raised, maintained, or lowered their guidance. Look for defensive phrases like 'challenging market conditions' or 'expecting headwinds' to evaluate downward revisions.\n"
+        "- Tone Shifts: Search for evasive, defensive, or vague answers during the Q&A segment from analysts (e.g., dodging direct questions about profit margins, market share loss, or project delays).\n"
+        "- Red Flags: Call out concrete warning signs: delays in capex completion, margin contraction warnings, auditor issues, customer churn, or high promoter leverage.\n\n"
+        "Requirements:\n"
+        "1. Write a sharp, critical summary highlighting management confidence levels, tone changes, and guidance realism.\n"
+        "2. Collect 1-2 verbatim quotes supporting your evaluation. For each evidence item, set 'source' to the Document ID, and 'pillar' to 'Management Sentiment'.\n\n"
         f"Schema: {_schema_hint(ManagementSentimentOutput)}\n\n"
         f"Stock: {ticker}\n"
-        "Note: No live concall data supplied — use your general knowledge of the company."
+        f"Instructions: {note_str}\n\n"
+        f"Concall Context Chunks:\n{context_str}"
     )
 
     try:
@@ -256,12 +412,22 @@ def run_agent_d_valuation(state: dict) -> dict:
     fin_data = _fetch_financial_snippet(ticker)
 
     prompt = (
-        "You are Agent D, a valuation and risk analyst for Indian equities. "
-        "Compute fair value estimates and assess risk. Return STRICT JSON matching the schema. "
-        "target_prices must contain 'bear', 'base', 'bull' keys (all floats in INR). "
+        "You are Agent D, an ultra-precise corporate valuation and risk audit specialist for Indian equities.\n"
+        "Your task is to estimate realistic fair values and perform a rigorous balance sheet and governance audit. "
+        "Return STRICT JSON matching the schema.\n\n"
+        "Valuation Methodology Guidelines:\n"
+        "- Calculate target prices (Bear, Base, Bull in INR) using a standard earnings multiple approach, anchored to the stock's current price.\n"
+        "- Current price is supplied in the financial data. Your Base Target should represent a reasonable forward multiple based on earnings growth. Bull Target should reflect premium valuation expansion. Bear Target must reflect severe multiple contraction or macro stress.\n"
+        "- Ensure Bear < Base < Bull. If current price is ₹100, Base target should be realistic (e.g., ₹115-130 depending on growth) rather than arbitrary extreme values.\n\n"
+        "Risk Audit Requirements:\n"
+        "- Governance Risks: Evaluate low promoter holdings (<35%) or increasing promoter pledge levels.\n"
+        "- Operational Risks: Identify margin contraction by comparing TTM EBITDA margins against historical years.\n"
+        "- Balance Sheet Leverage: Identify high Net Debt-to-EBITDA (>3.0x is highly risky, <1.0x is very safe).\n"
+        "- Liquidity & Float: Check working capital cash conversion cycles and trading float tightness.\n\n"
+        "Populate schema list fields: 'risk_flags', 'accounting_flags', and 'liquidity_flags' with explicit indicators (e.g., 'high_debt_leverage', 'promoter_pledging', etc.).\n\n"
         f"Schema: {_schema_hint(ValuationRiskOutput)}\n\n"
         f"Stock: {ticker}\n"
-        f"Financial data: {json.dumps(fin_data, default=str)[:1500]}"
+        f"Financial data: {json.dumps(fin_data, default=str)[:2000]}"
     )
 
     try:
@@ -310,12 +476,14 @@ def run_synthesis(state: dict) -> dict:
     override_hold = min_score < 35
 
     prompt = (
-        "You are the Synthesis Agent for an Indian equity research system. "
-        "Combine the 4 sub-agent outputs below into a 150-word investment thesis. "
-        "Use the pre-calculated composite score. "
-        f"{'IMPORTANT: Because one sub-score is below 35, the recommendation MUST be HOLD or AVOID.' if override_hold else ''} "
-        "Return STRICT JSON matching this schema: "
-        f"{_schema_hint(SynthesisOutput)}\n\n"
+        "You are the Lead Synthesis Agent for a premium institutional equity research firm.\n"
+        "Your task is to synthesize the individual specialist analyst reports (Fundamentals, Sector, Sentiment, Valuation) into a flawless, cohesive investment thesis paragraph (exactly 120-150 words).\n\n"
+        "Writing & Formatting Instructions:\n"
+        "1. Write in a highly professional, dense, and objective institutional tone. Do not use fluffy marketing language or generic phrases.\n"
+        "2. Synthesize the findings: start with a strong buy/hold/avoid stance, explain the core fundamental driver (revenue growth or profitability efficiency), summarize the sector tailwind or competitive advantage, inject management concall findings (optimistic or cautious guidance), and address valuation targets and major risks.\n"
+        "3. Highlight key metrics, scores, sectors, and ticker names by wrapping them in markdown bold tags (**). (e.g., '**MCX**', '**BUY**', '**83.5%**', '**Financial Services**', '**ROIC of 43.2%**'). This is critical for our UI highlights.\n"
+        "4. Strict requirement: Return JSON matching the schema.\n\n"
+        f"Schema: {_schema_hint(SynthesisOutput)}\n\n"
         f"Ticker: {ticker}\n"
         f"Composite score (pre-calculated): {round(composite, 2)}\n"
         f"Agent A (Fundamentals): {json.dumps(agent_a, default=str)[:600]}\n"

@@ -665,12 +665,27 @@ interface CompareModalProps {
   onRemoveTicker: (ticker: string) => void;
 }
 
+const renderFormattedText = (text: string | null | undefined) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={index} className="font-bold text-white font-mono bg-white/5 px-1 py-0.5 rounded border border-white/5 select-all">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+};
+
 function CompareModal({ items, onClose, onRemoveTicker }: CompareModalProps) {
   if (items.length === 0) return null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto backdrop-blur-md bg-slate-950/80 flex items-center justify-center p-4 md:p-6">
-      <div className="bg-[#0b121f] border border-white/[0.08] rounded-3xl w-full max-w-7xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+    <div className="fixed inset-0 z-50 backdrop-blur-md bg-slate-950/80 flex items-center justify-center p-4 md:p-6 animate-fade-in">
+      <div className="bg-[#0b121f] border border-white/[0.08] rounded-3xl w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl">
         {/* Header */}
         <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between shrink-0 bg-white/[0.01]">
           <div>
@@ -680,7 +695,7 @@ function CompareModal({ items, onClose, onRemoveTicker }: CompareModalProps) {
               </svg>
               Stock Comparison Matrix
             </h2>
-            <p className="text-slate-500 text-xs mt-0.5">Institutional-grade side-by-side equity comparison</p>
+            <p className="text-slate-500 text-xs mt-0.5">Institutional-grade side-by-side row comparison</p>
           </div>
           <button
             onClick={onClose}
@@ -693,164 +708,161 @@ function CompareModal({ items, onClose, onRemoveTicker }: CompareModalProps) {
           </button>
         </div>
 
-        {/* Scrollable Matrix Content */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className={`grid gap-4 grid-cols-1 ${
-            items.length === 1 ? 'md:grid-cols-1' : items.length === 2 ? 'md:grid-cols-2' : 'lg:grid-cols-3'
-          }`}>
-            {items.map(item => {
-              const score = item.composite_score ?? 0;
-              const rec = item.recommendation || 'RANK_ONLY';
-              const recStyle = recStyles[rec] || recStyles.RANK_ONLY;
-              
-              const ao = item.agent_outputs || {};
-              const pf2 = (ao.prefilter_v2 as Record<string, number | null>) || null;
-              
-              const tp = item.target_prices || {};
-
-              const metrics = pf2 ? [
-                { label: 'Rev CAGR (2yr)', val: pf2.rev_cagr != null ? `${Number(pf2.rev_cagr).toFixed(1)}%` : '—' },
-                { label: 'PAT CAGR (2yr)', val: pf2.pat_cagr != null ? `${Number(pf2.pat_cagr).toFixed(1)}%` : '—' },
-                { label: 'ROE', val: pf2.roe != null ? `${Number(pf2.roe).toFixed(1)}%` : '—' },
-                { label: 'ROIC', val: pf2.roic != null ? `${Number(pf2.roic).toFixed(1)}%` : '—' },
-                { label: 'Forward P/E', val: pf2.pe_fwd != null ? `${Number(pf2.pe_fwd).toFixed(1)}x` : '—' },
-                { label: 'EV / EBITDA', val: pf2.ev_ebitda_fwd != null ? `${Number(pf2.ev_ebitda_fwd).toFixed(1)}x` : '—' },
-                { label: 'Consensus Upside', val: pf2.consensus_upside != null ? `${Number(pf2.consensus_upside).toFixed(0)}%` : '—', highlight: true },
-                { label: 'EBITDA Margin', val: pf2.ebitda_margin_fy25 != null ? `${Number(pf2.ebitda_margin_fy25).toFixed(1)}%` : '—' },
-                { label: 'Promoter Share %', val: pf2.promoter_pct != null ? `${Number(pf2.promoter_pct).toFixed(1)}%` : '—' },
-                { label: 'Net Leverage', val: pf2.net_leverage != null ? `${Number(pf2.net_leverage).toFixed(2)}x` : '—' },
-                { label: '3m Return', val: pf2.ret_3m != null ? `${Number(pf2.ret_3m).toFixed(1)}%` : '—', color: (pf2.ret_3m ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' },
-                { label: '6m Return', val: pf2.ret_6m != null ? `${Number(pf2.ret_6m).toFixed(1)}%` : '—', color: (pf2.ret_6m ?? 0) >= 0 ? 'text-green-400' : 'text-red-400' },
-              ] : [];
-
-              return (
-                <div key={item.ticker} className="bg-white/[0.015] border border-white/[0.06] rounded-2xl p-5 flex flex-col space-y-5 hover:border-white/10 transition-all relative">
-                  {/* Remove button */}
-                  {items.length > 1 && (
-                    <button
-                      onClick={() => onRemoveTicker(item.ticker)}
-                      title="Remove from comparison"
-                      className="absolute top-4 right-4 p-1.5 rounded-lg bg-white/[0.04] hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18" />
-                        <line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  )}
-
-                  {/* Header info */}
-                  <div className="flex items-center gap-3">
-                    <ScoreArc score={score} />
-                    <div className="flex-1 min-w-0 pr-6">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h3 className="text-base font-bold font-mono text-slate-100">{item.ticker}</h3>
-                        <span className={`text-[9px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide ${recStyle}`}>
-                          {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec.replace(/_/g, ' ')}
-                        </span>
-                      </div>
-                      <p className="text-slate-400 text-xs truncate mt-0.5">{item.name || '—'}</p>
-                      <p className="text-[10px] text-slate-600 truncate mt-0.5">{item.sector || '—'}</p>
-                    </div>
-                  </div>
-
-                  {/* Factor scores breakdown */}
-                  <div className="bg-white/[0.01] border border-white/[0.05] rounded-xl p-3.5 space-y-2">
-                    <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Score Breakdown</div>
-                    {[
-                      { label: 'Growth Factor', val: item.growth_score },
-                      { label: pf2 ? 'Quality Factor' : 'Durability Factor', val: item.durability_score },
-                      { label: 'Valuation Factor', val: item.valuation_score },
-                      { label: pf2 ? 'Momentum Factor' : 'Technical Factor', val: item.technical_score },
-                      { label: pf2 ? 'Health Factor' : 'Sector Factor', val: item.sector_score },
-                    ].map(f => (
-                      <div key={f.label} className="flex items-center justify-between gap-4 text-xs">
-                        <span className="text-slate-500">{f.label}</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-16 h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${f.val ?? 0}%`, background: scoreColor(f.val) }} />
+        {/* Scrollable Matrix Table */}
+        <div className="flex-1 overflow-auto p-6">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-white/[0.08]">
+                <th className="py-4 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-widest min-w-[180px] sticky left-0 bg-[#0b121f] z-10">Metric</th>
+                {items.map(item => {
+                  const rec = item.recommendation || 'RANK_ONLY';
+                  const recStyle = recStyles[rec] || recStyles.RANK_ONLY;
+                  return (
+                    <th key={item.ticker} className="py-4 px-6 min-w-[220px]">
+                      <div className="flex items-center justify-between gap-3 relative">
+                        <div className="flex items-center gap-3">
+                          <ScoreArc score={item.composite_score || 0} />
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm font-bold font-mono text-slate-100">{item.ticker}</span>
+                              <span className={`text-[8px] px-1 py-0.2 rounded border font-bold uppercase tracking-wide leading-none ${recStyle}`}>
+                                {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec.replace(/_/g, ' ')}
+                              </span>
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate max-w-[150px] mt-0.5" title={item.name || ''}>{item.name || '—'}</div>
                           </div>
-                          <span className="font-mono text-slate-300 w-6 text-right">{f.val != null ? Math.round(f.val) : '—'}</span>
                         </div>
+                        <button
+                          onClick={() => onRemoveTicker(item.ticker)}
+                          title="Remove"
+                          className="p-1 rounded bg-white/[0.03] hover:bg-red-500/10 text-slate-500 hover:text-red-400 transition-colors"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                          </svg>
+                        </button>
                       </div>
-                    ))}
-                  </div>
-
-                  {/* Quant Metrics Matrix */}
-                  {metrics.length > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Key Quantitative Metrics</div>
-                      <div className="bg-white/[0.01] border border-white/[0.05] rounded-xl p-3 divide-y divide-white/[0.03]">
-                        {metrics.map(m => (
-                          <div key={m.label} className="flex justify-between py-1.5 text-xs">
-                            <span className="text-slate-500">{m.label}</span>
-                            <span className={`font-mono font-semibold ${
-                              m.highlight ? 'text-indigo-400' : m.color ? m.color : 'text-slate-200'
-                            }`}>{m.val}</span>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/[0.04] text-xs">
+              {/* Category: Ratings */}
+              <tr className="bg-white/[0.01]">
+                <td colSpan={items.length + 1} className="py-2.5 px-3 font-semibold text-indigo-400 text-[10px] uppercase tracking-widest sticky left-0 z-10">Factor Scores</td>
+              </tr>
+              <tr>
+                <td className="py-3.5 pr-4 text-slate-400 font-medium sticky left-0 bg-[#0b121f] z-10">Composite Score</td>
+                {items.map(item => (
+                  <td key={item.ticker} className="py-3.5 px-6 font-mono font-black text-sm" style={{ color: scoreColor(item.composite_score) }}>
+                    {fmt(item.composite_score)}/100
+                  </td>
+                ))}
+              </tr>
+              {[
+                { label: 'Growth Score', key: 'growth_score' },
+                { label: 'Quality & Durability', key: 'durability_score' },
+                { label: 'Valuation Rating', key: 'valuation_score' },
+                { label: 'Technical Momentum', key: 'technical_score' },
+                { label: 'Sector Health Indicator', key: 'sector_score' }
+              ].map(row => (
+                <tr key={row.key}>
+                  <td className="py-3.5 pr-4 text-slate-400 sticky left-0 bg-[#0b121f] z-10">{row.label}</td>
+                  {items.map(item => {
+                    const val = (item as any)[row.key];
+                    return (
+                      <td key={item.ticker} className="py-3.5 px-6 font-mono font-bold" style={{ color: scoreColor(val) }}>
+                        <div className="flex items-center gap-2">
+                          <span className="w-8 text-right">{val != null ? Math.round(val) : '—'}</span>
+                          <div className="w-20 h-1.5 bg-white/[0.04] rounded-full overflow-hidden shrink-0">
+                            <div className="h-full rounded-full" style={{ width: `${val ?? 0}%`, background: scoreColor(val) }} />
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
 
-                  {/* Target Prices */}
-                  {(tp.bear || tp.base || tp.bull) && (
-                    <div className="space-y-1.5">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Target Prices</div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { label: 'Bear', val: tp.bear, style: 'border-red-500/10 bg-red-500/5 text-red-400' },
-                          { label: 'Base', val: tp.base, style: 'border-indigo-500/10 bg-indigo-500/5 text-indigo-400' },
-                          { label: 'Bull', val: tp.bull, style: 'border-green-500/10 bg-green-500/5 text-green-400' },
-                        ].map(t => (
-                          <div key={t.label} className={`rounded-xl border p-2 text-center ${t.style}`}>
-                            <div className="text-[8px] uppercase tracking-wider opacity-60 mb-0.5">{t.label}</div>
-                            <div className="text-xs font-bold font-mono">₹{t.val != null ? Math.round(t.val) : '—'}</div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+              {/* Category: Quantitative Key Ratios */}
+              <tr className="bg-white/[0.01]">
+                <td colSpan={items.length + 1} className="py-2.5 px-3 font-semibold text-indigo-400 text-[10px] uppercase tracking-widest sticky left-0 z-10">Quantitative Metrics</td>
+              </tr>
+              {[
+                { label: 'Revenue CAGR (2yr)', getVal: (pf2: any) => pf2.rev_cagr != null ? `${Number(pf2.rev_cagr).toFixed(1)}%` : '—' },
+                { label: 'PAT CAGR (2yr)', getVal: (pf2: any) => pf2.pat_cagr != null ? `${Number(pf2.pat_cagr).toFixed(1)}%` : '—' },
+                { label: 'Return on Equity (ROE)', getVal: (pf2: any) => pf2.roe != null ? `${Number(pf2.roe).toFixed(1)}%` : '—' },
+                { label: 'Return on Invested Capital (ROIC)', getVal: (pf2: any) => pf2.roic != null ? `${Number(pf2.roic).toFixed(1)}%` : '—' },
+                { label: 'Forward P/E Multiple', getVal: (pf2: any) => pf2.pe_fwd != null ? `${Number(pf2.pe_fwd).toFixed(1)}x` : '—' },
+                { label: 'EV / EBITDA Multiple', getVal: (pf2: any) => pf2.ev_ebitda_fwd != null ? `${Number(pf2.ev_ebitda_fwd).toFixed(1)}x` : '—' },
+                { label: 'Consensus Market Upside', getVal: (pf2: any) => pf2.consensus_upside != null ? `${Number(pf2.consensus_upside).toFixed(0)}%` : '—', color: 'text-indigo-400 font-bold' },
+                { label: 'EBITDA Margin', getVal: (pf2: any) => pf2.ebitda_margin_fy25 != null ? `${Number(pf2.ebitda_margin_fy25).toFixed(1)}%` : '—' },
+                { label: 'Promoter Shareholding', getVal: (pf2: any) => pf2.promoter_pct != null ? `${Number(pf2.promoter_pct).toFixed(1)}%` : '—' },
+                { label: 'Net Leverage (Debt/EBITDA)', getVal: (pf2: any) => pf2.net_leverage != null ? `${Number(pf2.net_leverage).toFixed(2)}x` : '—' },
+                { label: '3-Month Stock Return', getVal: (pf2: any) => pf2.ret_3m != null ? `${Number(pf2.ret_3m).toFixed(1)}%` : '—', getColor: (pf2: any) => (pf2.ret_3m ?? 0) >= 0 ? 'text-green-400 font-bold' : 'text-red-400 font-bold' },
+                { label: '6-Month Stock Return', getVal: (pf2: any) => pf2.ret_6m != null ? `${Number(pf2.ret_6m).toFixed(1)}%` : '—', getColor: (pf2: any) => (pf2.ret_6m ?? 0) >= 0 ? 'text-green-400 font-bold' : 'text-red-400 font-bold' },
+              ].map((row, idx) => (
+                <tr key={idx}>
+                  <td className="py-3 pr-4 text-slate-400 sticky left-0 bg-[#0b121f] z-10">{row.label}</td>
+                  {items.map(item => {
+                    const ao = item.agent_outputs || {};
+                    const pf2 = ao.prefilter_v2 || null;
+                    const val = pf2 ? row.getVal(pf2) : '—';
+                    const customCol = pf2 && (row as any).getColor ? (row as any).getColor(pf2) : row.color ? row.color : 'text-slate-200';
+                    return (
+                      <td key={item.ticker} className={`py-3 px-6 font-mono font-medium ${customCol}`}>
+                        {val}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
 
-                  {/* Key Catalysts & Risks */}
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    <div>
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">Catalysts</div>
-                      <div className="flex flex-wrap gap-1">
-                        {item.key_catalysts?.slice(0, 3).map(c => (
-                          <span key={c} className="text-[9px] px-1.5 py-0.5 rounded-full bg-teal-500/10 text-teal-400 border border-teal-500/20 truncate max-w-full">
-                            {c.replace(/_/g, ' ')}
-                          </span>
-                        )) || <span className="text-[10px] text-slate-600">None</span>}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">Key Risks</div>
-                      <div className="flex flex-wrap gap-1">
-                        {item.key_risks?.slice(0, 3).map(r => (
-                          <span key={r} className="text-[9px] px-1.5 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 truncate max-w-full">
-                            {r.replace(/_/g, ' ')}
-                          </span>
-                        )) || <span className="text-[10px] text-slate-600">None</span>}
-                      </div>
-                    </div>
-                  </div>
+              {/* Category: Target Prices */}
+              <tr className="bg-white/[0.01]">
+                <td colSpan={items.length + 1} className="py-2.5 px-3 font-semibold text-indigo-400 text-[10px] uppercase tracking-widest sticky left-0 z-10">Target Prices (INR)</td>
+              </tr>
+              {[
+                { label: 'Bear Case Target', key: 'bear', color: 'text-red-400 font-bold' },
+                { label: 'Base Case Target', key: 'base', color: 'text-indigo-400 font-bold' },
+                { label: 'Bull Case Target', key: 'bull', color: 'text-green-400 font-bold' },
+              ].map(row => (
+                <tr key={row.key}>
+                  <td className="py-3.5 pr-4 text-slate-400 sticky left-0 bg-[#0b121f] z-10">{row.label}</td>
+                  {items.map(item => {
+                    const tp = item.target_prices || {};
+                    const val = tp[row.key];
+                    return (
+                      <td key={item.ticker} className={`py-3.5 px-6 font-mono ${row.color}`}>
+                        {val ? `₹${Math.round(val).toLocaleString('en-IN')}` : '—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
 
-                  {/* AI Thesis snippet */}
-                  {item.thesis_paragraph && (
-                    <div className="space-y-1.5 flex-1 flex flex-col justify-end">
-                      <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-1">AI Thesis Summary</div>
-                      <p className="text-[11px] text-slate-300 leading-relaxed bg-white/[0.01] border border-white/[0.04] rounded-xl p-3 italic">
-                        {item.thesis_paragraph.length > 250 
-                          ? `${item.thesis_paragraph.slice(0, 250)}…` 
-                          : item.thesis_paragraph}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+              {/* Category: AI Synthesis Thesis */}
+              <tr className="bg-white/[0.01]">
+                <td colSpan={items.length + 1} className="py-2.5 px-3 font-semibold text-indigo-400 text-[10px] uppercase tracking-widest sticky left-0 z-10">AI Thesis & Summaries</td>
+              </tr>
+              <tr>
+                <td className="py-4 pr-4 text-slate-400 align-top sticky left-0 bg-[#0b121f] z-10">AI Investment Thesis</td>
+                {items.map(item => (
+                  <td key={item.ticker} className="py-4 px-6 text-[11px] text-slate-300 leading-relaxed max-w-[320px] align-top">
+                    {item.thesis_paragraph ? (
+                      <div className="bg-white/[0.01] border border-white/[0.04] rounded-xl p-3 select-all">
+                        {renderFormattedText(item.thesis_paragraph)}
+                      </div>
+                    ) : (
+                      <span className="text-slate-600 italic">No synthesis report run yet.</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

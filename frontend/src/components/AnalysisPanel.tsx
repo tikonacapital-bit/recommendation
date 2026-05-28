@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { StockAnalysis } from '../lib/types';
 import { api, fmt, fmtPrice, scoreColor, scoreGradient } from '../lib/api';
+import FinancialCharts from './FinancialCharts';
 
 interface Evidence {
   id: number;
@@ -44,6 +45,67 @@ function ScoreBar({ label, value }: { label: string; value: number | null | unde
   );
 }
 
+function AgentCard({ title, icon, data }: { title: string, icon: React.ReactNode, data: any }) {
+  if (!data || Object.keys(data).length === 0) return null;
+  const summary = data.summary || "No summary available.";
+  const isError = summary.toLowerCase().includes("unavailable") || summary.toLowerCase().includes("failed");
+
+  return (
+    <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-4 flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+          <span className="text-indigo-400">{icon}</span>
+          {title}
+        </div>
+        <div className={`w-2 h-2 rounded-full ${!isError ? 'bg-green-500 shadow-[0_0_6px_#22c55e]' : 'bg-red-500 shadow-[0_0_6px_#ef4444]'}`} />
+      </div>
+      <p className="text-xs text-slate-400 leading-relaxed line-clamp-3" title={summary}>{summary}</p>
+
+      {/* Dynamic Key Metrics based on agent type */}
+      {data.growth_score != null && (
+        <div className="mt-auto pt-2 flex gap-3 text-[10px] uppercase tracking-wider text-slate-500 font-mono">
+          <div>Growth: {data.growth_score.toFixed(0)}</div>
+          <div>Quality: {data.durability_score?.toFixed(0)}</div>
+        </div>
+      )}
+      {data.sector_score != null && (
+        <div className="mt-auto pt-2 text-[10px] uppercase tracking-wider text-slate-500 font-mono">
+          <div>Sector KPI Score: {data.sector_score.toFixed(0)}</div>
+        </div>
+      )}
+      {data.tone_shift != null && (
+        <div className="mt-auto pt-2 flex flex-wrap gap-1">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300">Tone: {data.tone_shift}</span>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300">Guidance: {data.guidance_change}</span>
+        </div>
+      )}
+      {data.valuation_score != null && (
+        <div className="mt-auto pt-2 flex flex-wrap gap-1">
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 border border-white/10 text-slate-300">Value Score: {data.valuation_score.toFixed(0)}</span>
+          {data.risk_flags && data.risk_flags.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20 text-red-400">{data.risk_flags.length} Risks</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const renderFormattedText = (text: string | null | undefined) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={index} className="font-bold text-white font-mono bg-white/5 px-1 py-0.5 rounded border border-white/5 select-all">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    return part;
+  });
+};
+
 export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
   const [evidence, setEvidence] = useState<Evidence[]>([]);
   const [predictions, setPredictions] = useState<Prediction[]>([]);
@@ -63,41 +125,41 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
 
   const bars = pf2
     ? [
-        { label: 'Growth', val: item.growth_score },
-        { label: 'Quality', val: item.durability_score },
-        { label: 'Valuation', val: item.valuation_score },
-        { label: 'Momentum', val: item.technical_score },
-        { label: 'Health', val: item.sector_score },
-      ]
+      { label: 'Growth', val: item.growth_score },
+      { label: 'Quality', val: item.durability_score },
+      { label: 'Valuation', val: item.valuation_score },
+      { label: 'Momentum', val: item.technical_score },
+      { label: 'Health', val: item.sector_score },
+    ]
     : [
-        { label: 'Growth', val: item.growth_score },
-        { label: 'Durability', val: item.durability_score },
-        { label: 'Mgmt Qual', val: item.mgmt_quality_score },
-        { label: 'Sentiment', val: item.mgmt_sentiment_score },
-        { label: 'Valuation', val: item.valuation_score },
-        { label: 'Technical', val: item.technical_score },
-      ];
+      { label: 'Growth', val: item.growth_score },
+      { label: 'Durability', val: item.durability_score },
+      { label: 'Mgmt Qual', val: item.mgmt_quality_score },
+      { label: 'Sentiment', val: item.mgmt_sentiment_score },
+      { label: 'Valuation', val: item.valuation_score },
+      { label: 'Technical', val: item.technical_score },
+    ];
 
   const quantMetrics = pf2
     ? [
-        ['Rev CAGR 2yr', pf2.rev_cagr != null ? `${Number(pf2.rev_cagr).toFixed(1)}%` : '—'],
-        ['PAT CAGR 2yr', pf2.pat_cagr != null ? `${Number(pf2.pat_cagr).toFixed(1)}%` : '—'],
-        ['ROIC', pf2.roic != null ? `${Number(pf2.roic).toFixed(1)}%` : '—'],
-        ['ROE', pf2.roe != null ? `${Number(pf2.roe).toFixed(1)}%` : '—'],
-        ['Fwd PE', pf2.pe_fwd != null ? `${Number(pf2.pe_fwd).toFixed(1)}x` : '—'],
-        ['EV/EBITDA', pf2.ev_ebitda_fwd != null ? `${Number(pf2.ev_ebitda_fwd).toFixed(1)}x` : '—'],
-        ['Consensus ↑', pf2.consensus_upside != null ? `${Number(pf2.consensus_upside).toFixed(0)}%` : '—'],
-        ['EBITDA Margin', pf2.ebitda_margin_fy25 != null ? `${Number(pf2.ebitda_margin_fy25).toFixed(1)}%` : '—'],
-        ['3m Return', pf2.ret_3m != null ? `${Number(pf2.ret_3m).toFixed(1)}%` : '—'],
-        ['6m Return', pf2.ret_6m != null ? `${Number(pf2.ret_6m).toFixed(1)}%` : '—'],
-        ['Net Leverage', pf2.net_leverage != null ? `${Number(pf2.net_leverage).toFixed(2)}x` : '—'],
-        ['Promoter %', pf2.promoter_pct != null ? `${Number(pf2.promoter_pct).toFixed(1)}%` : '—'],
-      ]
+      ['Rev CAGR 2yr', pf2.rev_cagr != null ? `${Number(pf2.rev_cagr).toFixed(1)}%` : '—'],
+      ['PAT CAGR 2yr', pf2.pat_cagr != null ? `${Number(pf2.pat_cagr).toFixed(1)}%` : '—'],
+      ['ROIC', pf2.roic != null ? `${Number(pf2.roic).toFixed(1)}%` : '—'],
+      ['ROE', pf2.roe != null ? `${Number(pf2.roe).toFixed(1)}%` : '—'],
+      ['Fwd PE', pf2.pe_fwd != null ? `${Number(pf2.pe_fwd).toFixed(1)}x` : '—'],
+      ['EV/EBITDA', pf2.ev_ebitda_fwd != null ? `${Number(pf2.ev_ebitda_fwd).toFixed(1)}x` : '—'],
+      ['Consensus ↑', pf2.consensus_upside != null ? `${Number(pf2.consensus_upside).toFixed(0)}%` : '—'],
+      ['EBITDA Margin', pf2.ebitda_margin_fy25 != null ? `${Number(pf2.ebitda_margin_fy25).toFixed(1)}%` : '—'],
+      ['3m Return', pf2.ret_3m != null ? `${Number(pf2.ret_3m).toFixed(1)}%` : '—'],
+      ['6m Return', pf2.ret_6m != null ? `${Number(pf2.ret_6m).toFixed(1)}%` : '—'],
+      ['Net Leverage', pf2.net_leverage != null ? `${Number(pf2.net_leverage).toFixed(2)}x` : '—'],
+      ['Promoter %', pf2.promoter_pct != null ? `${Number(pf2.promoter_pct).toFixed(1)}%` : '—'],
+    ]
     : Object.keys(pfLeg).length
-    ? [
+      ? [
         ['Rev Growth', pf2 ? '—' : ((pfLeg as Record<string, unknown>).revenue_growth != null ? `${(Number((pfLeg as Record<string, unknown>).revenue_growth) * 100).toFixed(1)}%` : '—')],
       ]
-    : [];
+      : [];
 
   useEffect(() => {
     setLoadingEvidence(true);
@@ -151,8 +213,56 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
         <div>
           <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-2">AI Thesis</div>
           <p className="text-sm text-slate-300 leading-relaxed bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
-            {item.thesis_paragraph}
+            {renderFormattedText(item.thesis_paragraph)}
           </p>
+        </div>
+      )}
+
+      {/* Agent Diagnostics */}
+      {ao && !!(ao.agent_a || ao.agent_b || ao.agent_c || ao.agent_d) && (
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-2 flex items-center gap-2">
+            Agent Network Diagnostics
+            <span className="bg-indigo-500/10 text-indigo-400 px-1.5 py-0.5 rounded text-[8px]">LIVE</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <AgentCard
+              title="A: Fundamentals"
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 20V10M18 20V4M6 20v-4" />
+                </svg>
+              }
+              data={ao.agent_a}
+            />
+            <AgentCard
+              title="B: Sector Analyst"
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+                </svg>
+              }
+              data={ao.agent_b}
+            />
+            <AgentCard
+              title="C: Sentiment (RAG)"
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+              }
+              data={ao.agent_c}
+            />
+            <AgentCard
+              title="D: Valuation & Risk"
+              icon={
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+                </svg>
+              }
+              data={ao.agent_d}
+            />
+          </div>
         </div>
       )}
 
@@ -163,7 +273,7 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
             Score Breakdown
             {pf2 && <span className="normal-case tracking-normal ml-1 text-slate-700">(percentile-ranked)</span>}
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 md:gap-12 items-center bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4 md:p-6">
             <div className="space-y-3 w-full">
               {bars.map(b => <ScoreBar key={b.label} label={b.label} value={b.val} />)}
             </div>
@@ -222,6 +332,12 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Multi-Year Financial Trends */}
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-3">Multi-Year Financial Trends</div>
+        <FinancialCharts ticker={item.ticker} />
       </div>
 
       {/* Quant Metrics */}
@@ -452,7 +568,7 @@ export function RadarChart({ items, strokeColor }: RadarChartProps) {
         const labelOffset = 12;
         const lx = cx + (r + labelOffset) * Math.cos(p.angle);
         const ly = cy + (r + labelOffset) * Math.sin(p.angle);
-        
+
         let textAnchor: 'middle' | 'start' | 'end' = 'middle';
         if (Math.cos(p.angle) > 0.1) textAnchor = 'start';
         else if (Math.cos(p.angle) < -0.1) textAnchor = 'end';
@@ -503,11 +619,11 @@ export function BacktestChart({ data }: BacktestChartProps) {
   const actuals = sortedData.map(d => d.actual_price);
   const targets = sortedData.map(d => d.predicted_price);
   const allPrices = [...actuals, ...targets];
-  
+
   const minPrice = Math.min(...allPrices);
   const maxPrice = Math.max(...allPrices);
   const priceRange = maxPrice - minPrice || 1;
-  
+
   const yMin = Math.max(0, minPrice - priceRange * 0.1);
   const yMax = maxPrice + priceRange * 0.1;
   const yRange = yMax - yMin;
@@ -528,7 +644,7 @@ export function BacktestChart({ data }: BacktestChartProps) {
 
   const targetPointsReverse = [...targetPoints].reverse();
   const errorBandPoints = [...actualPoints, ...targetPointsReverse];
-  const errorBandPathStr = errorBandPoints.length > 0 
+  const errorBandPathStr = errorBandPoints.length > 0
     ? errorBandPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'
     : '';
 

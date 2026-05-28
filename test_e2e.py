@@ -139,6 +139,9 @@ except Exception as e:
 step("Step 6 — Full synthesize_latest_analysis → DB write-back")
 try:
     from app.services.llm_synthesis import synthesize_latest_analysis, LLMConfigError
+    # Close old session and open a fresh one to avoid PostgreSQL idle timeout drops
+    db.close()
+    db = SessionLocal()
     analysis = synthesize_latest_analysis(db, "TCS.NS")
     ok(f"Analysis id={analysis.id}")
     ok(f"Composite score: {analysis.composite_score}")
