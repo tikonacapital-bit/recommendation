@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    { "source": "/health", "destination": "https://your-deployed-fastapi-backend.onrender.com/health" },
+    { "source": "/worker/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/worker/:path*" },
+    { "source": "/llm/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/llm/:path*" },
+    { "source": "/top/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/top/:path*" },
+    { "source": "/view/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/view/:path*" },
+    { "source": "/universe/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/universe/:path*" },
+    { "source": "/synthesize/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/synthesize/:path*" },
+    { "source": "/prefilter/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/prefilter/:path*" },
+    { "source": "/refresh/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/refresh/:path*" },
+    { "source": "/stocks/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/stocks/:path*" },
+    { "source": "/pipeline/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/pipeline/:path*" },
+    { "source": "/tasks/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/tasks/:path*" },
+    { "source": "/analysis/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/analysis/:path*" },
+    { "source": "/stock/:path*", "destination": "https://your-deployed-fastapi-backend.onrender.com/stock/:path*" },
+    { "source": "/((?!assets/|favicon.ico|index.html|vite.svg).*)", "destination": "/index.html" }
+  ]
+}
