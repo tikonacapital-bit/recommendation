@@ -1,6 +1,25 @@
+const LOCAL_API_ORIGIN = 'http://127.0.0.1:8000';
+
+function resolveApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+
+  const configuredBase = import.meta.env.VITE_API_BASE_URL?.replace(/\/$/, '');
+  if (configuredBase) {
+    return `${configuredBase}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  const currentPort = window.location.port;
+  const isLocalHost = ['localhost', '127.0.0.1', '[::1]', '::1'].includes(window.location.hostname);
+  if (import.meta.env.DEV && isLocalHost && currentPort !== '5173') {
+    return `${LOCAL_API_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`;
+  }
+
+  return path;
+}
+
 // API helper
 export async function api<T = unknown>(path: string, opts: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, opts);
+  const res = await fetch(resolveApiUrl(path), opts);
   const data = await res.json().catch(() => ({ detail: res.statusText })) as Record<string, unknown>;
   if (!res.ok) {
     const detail = data.detail;

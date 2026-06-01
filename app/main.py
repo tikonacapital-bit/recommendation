@@ -1,4 +1,5 @@
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import requests
@@ -14,6 +15,18 @@ from app.services.prefilter import run_prefilter
 from app.tasks import refresh_tickers, run_prefilter_task, run_agent_pipeline_task, run_universe_synthesis_task
 
 app = FastAPI(title="Multi-Agent Equity Research System", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://[::1]:5173",
+    ],
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # Nifty 50 constituents (NSE)
@@ -42,6 +55,7 @@ def _analysis_to_response(analysis: StockAnalysis) -> StockAnalysisResponse:
         ticker=stock.ticker,
         name=stock.name,
         sector=stock.sector,
+        market_cap=stock.market_cap,
         composite_score=analysis.composite_score,
         growth_score=analysis.growth_score,
         durability_score=analysis.durability_score,
@@ -458,7 +472,11 @@ def get_stock_financials(ticker: str, db: Session = Depends(get_db)) -> dict:
 
 
 @app.get("/stock/{ticker}/candles")
-def get_stock_candles(ticker: str, period: str = Query(default="1y", description="Time period, e.g. 1mo, 3mo, 6mo, 1y")) -> dict:
+def get_stock_candles(
+    ticker: str,
+    period: str = Query(default="1y", description="Time period, e.g. 1mo, 3mo, 6mo, 1y"),
+    interval: str = Query(default="1d", description="Interval, e.g. 1d, 1wk, 1mo"),
+) -> dict:
     """Fetch historical stock price data for candlestick charting."""
     import yfinance as yf
     normalized = ticker.upper().trim() if hasattr(ticker, "trim") else ticker.upper().strip()
@@ -469,12 +487,12 @@ def get_stock_candles(ticker: str, period: str = Query(default="1y", description
 
     try:
         t = yf.Ticker(normalized)
-        hist = t.history(period=period)
+        hist = t.history(period=period, interval=interval)
         if hist.empty:
             # Try once without suffix in case it's a global asset like AAPL or BTC-USD
             if normalized.endswith(".NS"):
                 t = yf.Ticker(normalized.replace(".NS", ""))
-                hist = t.history(period=period)
+                hist = t.history(period=period, interval=interval)
             
             if hist.empty:
                 return {"ticker": normalized, "candles": []}
@@ -492,5 +510,4 @@ def get_stock_candles(ticker: str, period: str = Query(default="1y", description
         return {"ticker": normalized, "candles": candles}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
 

@@ -26,6 +26,22 @@ function AppInner() {
   const [ticker, setTicker] = useState('');
   const [taskBanner, setTaskBanner] = useState<string | null>(null);
   const [status, setStatus] = useState<SysStatus>({ db: 'loading', worker: 'loading', llm: 'loading' });
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return (localStorage.getItem('theme') as 'light' | 'dark') || 'light';
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === 'light') {
+      root.classList.add('light');
+      root.classList.remove('dark');
+    } else {
+      root.classList.add('dark');
+      root.classList.remove('light');
+    }
+    localStorage.setItem('theme', theme);
+    window.dispatchEvent(new Event('theme-change'));
+  }, [theme]);
 
   const loadStatus = useCallback(async () => {
     // DB
@@ -126,6 +142,23 @@ function AppInner() {
 
             {/* Actions */}
             <div className="flex items-center gap-2 shrink-0">
+              {/* Theme Toggle */}
+              <button
+                onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                className="p-1.5 rounded-lg border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] text-slate-400 hover:text-slate-200 transition-colors flex items-center justify-center shrink-0 cursor-pointer"
+                title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              >
+                {theme === 'dark' ? (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
+                  </svg>
+                ) : (
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                  </svg>
+                )}
+              </button>
+
               <button
                 onClick={() => {
                   if (ticker.trim()) setView('dashboard');

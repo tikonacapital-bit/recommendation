@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast';
 import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries, HistogramSeries } from 'lightweight-charts';
 
 type ChartLayout = 'single' | 'dual' | 'quad' | 'all';
-type Timeframe = '5' | '15' | '60' | 'D' | 'W' | 'M';
+type Timeframe = 'D' | 'W' | 'M' | '6M' | '12M';
 type ChartStyle = '1' | '2' | '3' | '8'; // 1=Candles, 2=Line, 3=Area, 8=Heikin Ashi
 
 export default function ChartsView() {
@@ -13,6 +13,8 @@ export default function ChartsView() {
   const [data, setData] = useState<StockAnalysis[]>([]);
   const [loadingUniverse, setLoadingUniverse] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSector, setSelectedSector] = useState<string>('All');
+  const [minMarketCapCr, setMinMarketCapCr] = useState<number>(0);
 
   // Multi-chart slot management (max 4 slots for quad view)
   const [symbols, setSymbols] = useState<string[]>([
@@ -23,7 +25,7 @@ export default function ChartsView() {
   ]);
   const [activeSlot, setActiveSlot] = useState<number>(0);
   const [layout, setLayout] = useState<ChartLayout>('single');
-  const [timeframe, setTimeframe] = useState<Timeframe>('D');
+  const [timeframe, setTimeframe] = useState<Timeframe>('12M');
   const [chartStyle, setChartStyle] = useState<ChartStyle>('1');
   const [customSymbol, setCustomSymbol] = useState('');
   const [showControls, setShowControls] = useState(true);
@@ -34,7 +36,7 @@ export default function ChartsView() {
     try {
       const resp = await api<TopResponse>('/top?limit=150');
       setData(resp.results || []);
-      
+
       // Auto-set the first loaded ticker in Slot 0 if available
       if (resp.results && resp.results.length > 0) {
         const firstTicker = translateTicker(resp.results[0].ticker);
@@ -72,17 +74,36 @@ export default function ChartsView() {
     return clean;
   };
 
-  // Filtered sidebar tickers based on search
+  // Extract all distinct sectors dynamically from the tracked universe
+  const sectors = useMemo(() => {
+    const set = new Set<string>();
+    data.forEach(stock => {
+      if (stock.sector) set.add(stock.sector);
+    });
+    return ['All', ...Array.from(set).sort()];
+  }, [data]);
+
+  // Filtered sidebar tickers based on search, sector, and market cap
   const filteredStocks = useMemo(() => {
     return data.filter(stock => {
+      // 1. Search filter
       const q = searchQuery.toLowerCase();
-      return (
+      const matchesSearch = !q || (
         stock.ticker.toLowerCase().includes(q) ||
         (stock.name && stock.name.toLowerCase().includes(q)) ||
         (stock.sector && stock.sector.toLowerCase().includes(q))
       );
+
+      // 2. Sector filter
+      const matchesSector = selectedSector === 'All' || stock.sector === selectedSector;
+
+      // 3. Market Cap filter (Rupees to Crores)
+      const marketCapCr = stock.market_cap ? stock.market_cap / 10000000 : 0;
+      const matchesMarketCap = minMarketCapCr === 0 || marketCapCr >= minMarketCapCr;
+
+      return matchesSearch && matchesSector && matchesMarketCap;
     });
-  }, [data, searchQuery]);
+  }, [data, searchQuery, selectedSector, minMarketCapCr]);
 
   // Handle ticker selection from the sidebar
   const handleSelectStock = (stock: StockAnalysis) => {
@@ -119,109 +140,145 @@ export default function ChartsView() {
 
   return (
     <div className="flex flex-col xl:flex-row gap-5 h-[calc(100vh-70px)] min-h-[550px] fade-in relative select-none">
-      
+
       {/* ── LEFT SIDEBAR: Stocks Universe List ── */}
       {(layout !== 'all' && layout !== 'quad') && (
         <div className="w-full xl:w-72 bg-white/[0.02] border border-white/[0.07] rounded-2xl flex flex-col shrink-0 overflow-hidden h-full">
-        {/* Search Header */}
-        <div className="p-4 border-b border-white/[0.06] shrink-0 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-200">Tracked Universe</h2>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
-              {filteredStocks.length}
-            </span>
+          {/* Search & Filter Header */}
+          <div className="p-4 border-b border-white/[0.06] shrink-0 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-slate-200">Tracked Universe</h2>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+                {filteredStocks.length}
+              </span>
+            </div>
+
+            <div className="relative">
+              <svg
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
+                width="13"
+                height="13"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+              >
+                <circle cx="11" cy="11" r="8" />
+                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              </svg>
+              <input
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all"
+                placeholder="Filter universe stocks…"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+            </div>
+
+            {/* Quick Dropdown Filters */}
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Sector</label>
+                <select
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-indigo-500/50 cursor-pointer font-medium"
+                  value={selectedSector}
+                  onChange={e => setSelectedSector(e.target.value)}
+                >
+                  {sectors.map(sec => (
+                    <option key={sec} value={sec} className="bg-[#0b0f19] text-slate-300">
+                      {sec}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Mkt Cap</label>
+                <select
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-indigo-500/50 cursor-pointer font-medium"
+                  value={minMarketCapCr}
+                  onChange={e => setMinMarketCapCr(Number(e.target.value))}
+                >
+                  <option value={0} className="bg-[#0b0f19] text-slate-300">All</option>
+                  <option value={100} className="bg-[#0b0f19] text-slate-300">100 Cr+</option>
+                  <option value={500} className="bg-[#0b0f19] text-slate-300">500 Cr+</option>
+                  <option value={1000} className="bg-[#0b0f19] text-slate-300">1,000 Cr+</option>
+                  <option value={5000} className="bg-[#0b0f19] text-slate-300">5,000 Cr+</option>
+                  <option value={10000} className="bg-[#0b0f19] text-slate-300">10,000 Cr+</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <div className="relative">
-            <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-            >
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all"
-              placeholder="Filter universe stocks…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
-        </div>
+          {/* Scrollable Stocks List */}
+          <div className="flex-1 overflow-y-auto divide-y divide-white/[0.03] pr-1">
+            {loadingUniverse ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="h-12 shimmer rounded-xl" />
+                ))}
+              </div>
+            ) : filteredStocks.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-600">
+                No matching assets found in scored universe.
+              </div>
+            ) : (
+              filteredStocks.map(stock => {
+                const tvSym = translateTicker(stock.ticker);
+                const isLoadedInAnySlot = symbols.includes(tvSym);
+                const isLoadedInActiveSlot = symbols[activeSlot] === tvSym;
 
-        {/* Scrollable Stocks List */}
-        <div className="flex-1 overflow-y-auto divide-y divide-white/[0.03] pr-1">
-          {loadingUniverse ? (
-            <div className="p-4 space-y-3">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-12 shimmer rounded-xl" />
-              ))}
-            </div>
-          ) : filteredStocks.length === 0 ? (
-            <div className="p-8 text-center text-xs text-slate-600">
-              No matching assets found in scored universe.
-            </div>
-          ) : (
-            filteredStocks.map(stock => {
-              const tvSym = translateTicker(stock.ticker);
-              const isLoadedInAnySlot = symbols.includes(tvSym);
-              const isLoadedInActiveSlot = symbols[activeSlot] === tvSym;
-
-              return (
-                <div
-                  key={stock.ticker}
-                  onClick={() => handleSelectStock(stock)}
-                  className={`p-3 cursor-pointer text-left transition-all duration-150 relative group ${
-                    isLoadedInActiveSlot
+                return (
+                  <div
+                    key={stock.ticker}
+                    onClick={() => handleSelectStock(stock)}
+                    className={`p-3 cursor-pointer text-left transition-all duration-150 relative group ${isLoadedInActiveSlot
                       ? 'bg-indigo-500/10 border-l-2 border-indigo-500'
                       : isLoadedInAnySlot
-                      ? 'bg-white/[0.02] border-l-2 border-white/20 hover:bg-white/[0.04]'
-                      : 'hover:bg-white/[0.04]'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold font-mono text-indigo-400 group-hover:text-indigo-300 transition-colors">
-                      {stock.ticker}
-                    </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {stock.composite_score != null && (
-                        <span
-                          className="w-1.5 h-1.5 rounded-full"
-                          style={{ backgroundColor: scoreColor(stock.composite_score) }}
-                        />
-                      )}
-                      <span className="text-[11px] font-bold font-mono text-slate-300">
-                        {stock.composite_score?.toFixed(0) || '—'}
+                        ? 'bg-white/[0.02] border-l-2 border-white/20 hover:bg-white/[0.04]'
+                        : 'hover:bg-white/[0.04]'
+                      }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold font-mono text-indigo-400 group-hover:text-indigo-300 transition-colors">
+                        {stock.ticker}
                       </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {stock.composite_score != null && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full"
+                            style={{ backgroundColor: scoreColor(stock.composite_score) }}
+                          />
+                        )}
+                        <span className="text-[11px] font-bold font-mono text-slate-300">
+                          {stock.composite_score?.toFixed(0) || '—'}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="text-[10px] text-slate-500 truncate mt-0.5">
+                      {stock.name || '—'}
+                    </div>
+                    <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-wide mt-1">
+                      <span className="truncate max-w-[100px]">{stock.sector || '—'}</span>
+                      <span className="font-mono text-slate-500">
+                        {stock.market_cap ? `₹${(stock.market_cap / 10000000).toFixed(0)} Cr` : '—'}
+                      </span>
+                      {stock.recommendation && (
+                        <span className="font-bold text-indigo-400/80">
+                          {stock.recommendation === 'PASS_TIER_1' ? 'T1' : stock.recommendation === 'PASS_TIER_2' ? 'T2' : stock.recommendation === 'PASS_TIER_3' ? 'T3' : stock.recommendation}
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <div className="text-[10px] text-slate-500 truncate mt-0.5">
-                    {stock.name || '—'}
-                  </div>
-                  <div className="flex items-center justify-between text-[9px] text-slate-600 uppercase tracking-wide mt-1">
-                    <span className="truncate max-w-[120px]">{stock.sector || '—'}</span>
-                    {stock.recommendation && (
-                      <span className="font-bold text-indigo-400/80">
-                        {stock.recommendation === 'PASS_TIER_1' ? 'T1' : stock.recommendation === 'PASS_TIER_2' ? 'T2' : stock.recommendation === 'PASS_TIER_3' ? 'T3' : stock.recommendation}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
+                );
+              })
+            )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* ── MAIN WORKSPACE PANEL ── */}
       <div className="flex-1 flex flex-col gap-4 h-full min-w-0 relative">
-        
+
         {/* Toggle Controls Button (when hidden) */}
         {!showControls && (
           <button
@@ -235,133 +292,138 @@ export default function ChartsView() {
         {/* Custom Controls Bar */}
         {showControls && (
           <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl px-4 py-3 shrink-0 flex flex-wrap gap-4 items-center justify-between">
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Custom search symbol form */}
-            <form onSubmit={handleCustomSymbolSubmit} className="relative flex items-center gap-2">
-              <input
-                className="w-36 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 transition-all font-mono uppercase"
-                placeholder="Search TV symbol… e.g. BTCUSD"
-                value={customSymbol}
-                onChange={e => setCustomSymbol(e.target.value)}
-              />
-              <button
-                type="submit"
-                className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold transition-colors shrink-0"
-              >
-                Load
-              </button>
-            </form>
-
-            <div className="h-4 w-px bg-white/10" />
-
-            {/* Timeframe selector */}
-            <div className="flex bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5 text-[11px] font-mono">
-              {(['5', '15', '60', 'D', 'W', 'M'] as Timeframe[]).map(tf => (
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Custom search symbol form */}
+              <form onSubmit={handleCustomSymbolSubmit} className="relative flex items-center gap-2">
+                <input
+                  className="w-36 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 transition-all font-mono uppercase"
+                  placeholder="Search TV symbol… e.g. BTCUSD"
+                  value={customSymbol}
+                  onChange={e => setCustomSymbol(e.target.value)}
+                />
                 <button
-                  key={tf}
-                  onClick={() => setTimeframe(tf)}
-                  className={`px-2.5 py-1 rounded transition-all font-bold ${
-                    timeframe === tf
+                  type="submit"
+                  className="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[11px] font-semibold transition-colors shrink-0"
+                >
+                  Load
+                </button>
+              </form>
+
+              <div className="h-4 w-px bg-white/10" />
+
+              {/* Timeframe selector */}
+              <div className="flex bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5 text-[11px] font-mono">
+                {(['D', 'W', 'M', '6M', '12M'] as Timeframe[]).map(tf => (
+                  <button
+                    key={tf}
+                    onClick={() => setTimeframe(tf)}
+                    className={`px-2.5 py-1 rounded transition-all font-bold ${timeframe === tf
                       ? 'bg-indigo-600 text-white'
                       : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {tf === '60' ? '1H' : tf === '5' ? '5M' : tf === '15' ? '15M' : tf}
-                </button>
-              ))}
-            </div>
+                      }`}
+                  >
+                    {tf}
+                  </button>
+                ))}
+              </div>
 
-            <div className="h-4 w-px bg-white/10" />
+              <div className="h-4 w-px bg-white/10" />
 
-            {/* Chart Style Selector */}
-            <div className="flex bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5 text-[11px]">
-              {[
-                { id: '1' as ChartStyle, label: 'Candles' },
-                { id: '2' as ChartStyle, label: 'Line' },
-                { id: '3' as ChartStyle, label: 'Area' },
-                { id: '8' as ChartStyle, label: 'Heikin' },
-              ].map(styleOpt => (
-                <button
-                  key={styleOpt.id}
-                  onClick={() => setChartStyle(styleOpt.id)}
-                  className={`px-2 py-1 rounded transition-all font-medium ${
-                    chartStyle === styleOpt.id
+              {/* Chart Style Selector */}
+              <div className="flex bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5 text-[11px]">
+                {[
+                  { id: '1' as ChartStyle, label: 'Candles' },
+                  { id: '2' as ChartStyle, label: 'Line' },
+                  { id: '3' as ChartStyle, label: 'Area' },
+                  { id: '8' as ChartStyle, label: 'Heikin' },
+                ].map(styleOpt => (
+                  <button
+                    key={styleOpt.id}
+                    onClick={() => setChartStyle(styleOpt.id)}
+                    className={`px-2 py-1 rounded transition-all font-medium ${chartStyle === styleOpt.id
                       ? 'bg-indigo-600 text-white'
                       : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {styleOpt.label}
-                </button>
-              ))}
+                      }`}
+                  >
+                    {styleOpt.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Layout selector */}
-            <div className="flex bg-white/[0.04] border border-white/[0.08] rounded-xl p-1 gap-1">
-              {[
-                { id: 'single' as ChartLayout, label: 'Single', icon: (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                  </svg>
-                )},
-                { id: 'dual' as ChartLayout, label: 'Split', icon: (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" />
-                  </svg>
-                )},
-                { id: 'quad' as ChartLayout, label: 'Quad', icon: (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /><line x1="3" y1="12" x2="21" y2="12" />
-                  </svg>
-                )},
-                { id: 'all' as ChartLayout, label: 'All', icon: (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
-                  </svg>
-                )}
-              ].map(mode => (
-                <button
-                  key={mode.id}
-                  onClick={() => {
-                    setLayout(mode.id);
-                    // Adjust active slot if bounds change
-                    if (mode.id === 'single') setActiveSlot(0);
-                    if (mode.id === 'dual' && activeSlot > 1) setActiveSlot(0);
-                  }}
-                  title={`${mode.label} View`}
-                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    layout === mode.id
+            <div className="flex items-center gap-4 flex-wrap">
+              {/* Layout selector */}
+              <div className="flex bg-white/[0.04] border border-white/[0.08] rounded-xl p-1 gap-1">
+                {[
+                  {
+                    id: 'single' as ChartLayout, label: 'Single', icon: (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: 'dual' as ChartLayout, label: 'Split', icon: (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: 'quad' as ChartLayout, label: 'Quad', icon: (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /><line x1="3" y1="12" x2="21" y2="12" />
+                      </svg>
+                    )
+                  },
+                  {
+                    id: 'all' as ChartLayout, label: 'All', icon: (
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                        <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+                      </svg>
+                    )
+                  }
+                ].map(mode => (
+                  <button
+                    key={mode.id}
+                    onClick={() => {
+                      setLayout(mode.id);
+                      // Adjust active slot if bounds change
+                      if (mode.id === 'single') setActiveSlot(0);
+                      if (mode.id === 'dual' && activeSlot > 1) setActiveSlot(0);
+                    }}
+                    title={`${mode.label} View`}
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${layout === mode.id
                       ? 'bg-indigo-600 text-white shadow-md'
                       : 'text-slate-500 hover:text-slate-300'
-                  }`}
-                >
-                  {mode.icon}
-                  <span className="hidden sm:inline">{mode.label}</span>
-                </button>
-              ))}
-            </div>
+                      }`}
+                  >
+                    {mode.icon}
+                    <span className="hidden sm:inline">{mode.label}</span>
+                  </button>
+                ))}
+              </div>
 
-            <div className="h-4 w-px bg-white/10" />
-            
-            <button
-              onClick={() => setShowControls(false)}
-              className="px-2.5 py-1.5 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
-              title="Hide Controls Bar"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg>
-              <span className="hidden sm:inline">Hide</span>
-            </button>
+              <div className="h-4 w-px bg-white/10" />
+
+              <button
+                onClick={() => setShowControls(false)}
+                className="px-2.5 py-1.5 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+                title="Hide Controls Bar"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
+                <span className="hidden sm:inline">Hide</span>
+              </button>
+            </div>
           </div>
-        </div>
         )}
 
         {/* Charts Container Panel */}
         <div className="flex-1 flex gap-5 min-h-0">
-          
+
           {/* Main Chart Matrix */}
           <div className={`flex-1 ${layout !== 'all' ? 'grid' : ''} gap-4 min-h-0 h-full ${getLayoutGridClass()}`}>
-            
+
             {layout === 'all' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6 w-full h-max">
                 {filteredStocks.map((stock, idx) => {
@@ -374,12 +436,12 @@ export default function ChartsView() {
                         </span>
                       </div>
                       <div className="flex-1 w-full relative p-0 flex flex-col">
-                         <LazyTradingViewChart
-                            containerId={`tradingview_lazy_${idx}`}
-                            symbol={tvSym}
-                            timeframe={timeframe}
-                            chartStyle={chartStyle}
-                         />
+                        <LazyTradingViewChart
+                          containerId={`tradingview_lazy_${idx}`}
+                          symbol={tvSym}
+                          timeframe={timeframe}
+                          chartStyle={chartStyle}
+                        />
                       </div>
                     </div>
                   );
@@ -390,11 +452,10 @@ export default function ChartsView() {
                 {/* Render chart for Slot 0 */}
                 <div
                   onClick={() => setActiveSlot(0)}
-                  className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                    activeSlot === 0
-                      ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                      : 'border-white/[0.06] hover:border-white/[0.12]'
-                  }`}
+                  className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${activeSlot === 0
+                    ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                    : 'border-white/[0.06] hover:border-white/[0.12]'
+                    }`}
                 >
                   {/* Slot Header */}
                   <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
@@ -418,11 +479,10 @@ export default function ChartsView() {
                 {layout !== 'single' && (
                   <div
                     onClick={() => setActiveSlot(1)}
-                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                      activeSlot === 1
-                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                        : 'border-white/[0.06] hover:border-white/[0.12]'
-                    }`}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${activeSlot === 1
+                      ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                      : 'border-white/[0.06] hover:border-white/[0.12]'
+                      }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
                       <span className={activeSlot === 1 ? 'text-indigo-400' : 'text-slate-500'}>
@@ -448,11 +508,10 @@ export default function ChartsView() {
                 {layout === 'quad' && (
                   <div
                     onClick={() => setActiveSlot(2)}
-                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                      activeSlot === 2
-                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                        : 'border-white/[0.06] hover:border-white/[0.12]'
-                    }`}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${activeSlot === 2
+                      ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                      : 'border-white/[0.06] hover:border-white/[0.12]'
+                      }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
                       <span className={activeSlot === 2 ? 'text-indigo-400' : 'text-slate-500'}>
@@ -478,11 +537,10 @@ export default function ChartsView() {
                 {layout === 'quad' && (
                   <div
                     onClick={() => setActiveSlot(3)}
-                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                      activeSlot === 3
-                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                        : 'border-white/[0.06] hover:border-white/[0.12]'
-                    }`}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${activeSlot === 3
+                      ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                      : 'border-white/[0.06] hover:border-white/[0.12]'
+                      }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
                       <span className={activeSlot === 3 ? 'text-indigo-400' : 'text-slate-500'}>
@@ -560,6 +618,17 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
   const [loading, setLoading] = useState(true);
   const [hoveredCandle, setHoveredCandle] = useState<any | null>(null);
 
+  // Theme listener to redraw the chart on theme toggle
+  const [themeState, setThemeState] = useState(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+
+  useEffect(() => {
+    const handleThemeChange = () => {
+      setThemeState(document.documentElement.classList.contains('light') ? 'light' : 'dark');
+    };
+    window.addEventListener('theme-change', handleThemeChange);
+    return () => window.removeEventListener('theme-change', handleThemeChange);
+  }, []);
+
   const getTickerForApi = (sym: string) => {
     if (sym.startsWith('NSE:')) return `${sym.replace('NSE:', '')}.NS`;
     if (sym.startsWith('BSE:')) return `${sym.replace('BSE:', '')}.BO`;
@@ -567,23 +636,40 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
   };
 
   const periodMap: Record<string, string> = {
-    '5': '1mo',
-    '15': '3mo',
-    '60': '6mo',
-    'D': '1y',
-    'W': '2y',
-    'M': '5y'
+    '6M': '6mo',
+    '12M': '1y',
+    'D': '2y',
+    'W': '5y',
+    'M': 'max'
+  };
+
+  const intervalMap: Record<string, string> = {
+    '6M': '1d',
+    '12M': '1d',
+    'D': '1d',
+    'W': '1wk',
+    'M': '1mo'
   };
 
   const fetchCandles = useCallback(async () => {
     setLoading(true);
     const ticker = getTickerForApi(symbol);
     const period = periodMap[timeframe] || '1y';
+    const interval = intervalMap[timeframe] || '1d';
     try {
       const data = await api<{ ticker: string; candles: any[] }>(
-        `/stock/${ticker}/candles?period=${period}`
+        `/stock/${ticker}/candles?period=${period}&interval=${interval}`
       );
-      setCandles(data.candles || []);
+
+      // Filter out any candles where yfinance returned null/NaN for prices
+      const validCandles = (data.candles || []).filter(c =>
+        c.open != null && !isNaN(c.open) &&
+        c.high != null && !isNaN(c.high) &&
+        c.low != null && !isNaN(c.low) &&
+        c.close != null && !isNaN(c.close)
+      );
+
+      setCandles(validCandles);
     } catch (e) {
       console.error("Failed to load candles:", e);
       setCandles([]);
@@ -600,24 +686,47 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
     if (loading || candles.length === 0 || !chartContainerRef.current) return;
 
     const container = chartContainerRef.current;
-    
+
+    const isLight = themeState === 'light';
+    const chartBg = isLight ? '#ffffff' : '#080c14';
+    const chartText = isLight ? '#475569' : '#94a3b8';
+    const gridColor = isLight ? 'rgba(0, 0, 0, 0.04)' : 'rgba(255, 255, 255, 0.02)';
+    const borderColor = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.07)';
+
     // Create chart instance
     const chart = createChart(container, {
       layout: {
-        background: { type: ColorType.Solid, color: '#080c14' },
-        textColor: '#94a3b8',
+        background: { type: ColorType.Solid, color: chartBg },
+        textColor: chartText,
       },
       grid: {
-        vertLines: { color: 'rgba(255, 255, 255, 0.02)' },
-        horzLines: { color: 'rgba(255, 255, 255, 0.02)' },
+        vertLines: { color: gridColor },
+        horzLines: { color: gridColor },
       },
       rightPriceScale: {
-        borderColor: 'rgba(255, 255, 255, 0.07)',
+        borderColor: borderColor,
       },
       timeScale: {
-        borderColor: 'rgba(255, 255, 255, 0.07)',
+        borderColor: borderColor,
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (time: any, tickMarkType: number) => {
+          const dateStr = typeof time === 'string'
+            ? time
+            : (time.year ? `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}` : null);
+
+          if (!dateStr) return String(time);
+
+          const d = new Date(dateStr);
+          const month = d.toLocaleString('en-US', { month: 'short' });
+
+          // tickMarkType: 0=Year, 1=Month, 2=DayOfMonth
+          if (tickMarkType === 0) return d.getFullYear().toString();
+          if (tickMarkType === 1) return `${month} '${d.getFullYear().toString().slice(2)}`;
+          if (tickMarkType === 2) return `${d.getDate()} ${month}`;
+
+          return d.toLocaleDateString();
+        },
       },
       crosshair: {
         vertLine: {
@@ -655,7 +764,7 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
           priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
         });
       }
-      
+
       const lineData = candles.map(c => ({
         time: c.time,
         value: c.close,
@@ -671,7 +780,7 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
         wickDownColor: '#ef4444',
         priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
       });
-      
+
       mainSeries.setData(candles);
     }
 
@@ -714,6 +823,9 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
     // Initial sizing
     handleResize();
 
+    // Fit the timeline perfectly to the selected timeframe data
+    chart.timeScale().fitContent();
+
     // Hover tooltip / status overlay callback
     chart.subscribeCrosshairMove(param => {
       if (
@@ -743,7 +855,7 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
       resizeObserver.disconnect();
       chart.remove();
     };
-  }, [loading, candles, chartStyle]);
+  }, [loading, candles, chartStyle, themeState]);
 
   // Show loading skeleton
   if (loading) {
@@ -760,7 +872,7 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-[#070b12] text-slate-600 p-6 text-center">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-          <circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>
+          <circle cx="12" cy="12" r="10" /><line x1="8" y1="12" x2="16" y2="12" />
         </svg>
         <p className="text-xs mt-2 font-mono">Candlestick data unavailable for {symbol}.</p>
       </div>
@@ -778,43 +890,50 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
     volume: latestCandle.volume,
   };
 
-  const priceChange = displayData.close - displayData.open;
-  const pctChange = (priceChange / displayData.open) * 100;
-  const changeColor = priceChange >= 0 ? 'text-green-400' : 'text-red-400';
+  const safeVal = (v: any) => (v === null || v === undefined || isNaN(v)) ? null : Number(v);
+
+  const o = safeVal(displayData.open);
+  const h = safeVal(displayData.high);
+  const l = safeVal(displayData.low);
+  const c = safeVal(displayData.close);
+  const v = safeVal(displayData.volume);
+
+  const priceChange = (c !== null && o !== null) ? c - o : null;
+  const pctChange = (priceChange !== null && o !== null && o !== 0) ? (priceChange / o) * 100 : null;
+  const changeColor = priceChange !== null && priceChange >= 0 ? 'text-green-400' : 'text-red-400';
 
   return (
     <div className="w-full h-full flex flex-col relative bg-[#080c14] select-none">
       {/* Real-time OHLCV Info Bar Overlay */}
-      <div className="absolute top-2 left-3 z-10 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono bg-[#0d1420]/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/[0.05] shadow-lg pointer-events-none">
+      <div className="ohlcv-bar absolute top-2 left-3 z-10 flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-mono bg-[#0d1420]/80 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/[0.05] shadow-lg pointer-events-none">
         <div>
           <span className="text-slate-500">O:</span>{' '}
-          <span className="text-slate-300 font-bold">₹{displayData.open.toFixed(2)}</span>
+          <span className="text-slate-300 font-bold">{o !== null ? `₹${o.toFixed(2)}` : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">H:</span>{' '}
-          <span className="text-slate-300 font-bold">₹{displayData.high.toFixed(2)}</span>
+          <span className="text-slate-300 font-bold">{h !== null ? `₹${h.toFixed(2)}` : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">L:</span>{' '}
-          <span className="text-slate-300 font-bold">₹{displayData.low.toFixed(2)}</span>
+          <span className="text-slate-300 font-bold">{l !== null ? `₹${l.toFixed(2)}` : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">C:</span>{' '}
-          <span className="text-slate-300 font-bold">₹{displayData.close.toFixed(2)}</span>
+          <span className="text-slate-300 font-bold">{c !== null ? `₹${c.toFixed(2)}` : '—'}</span>
         </div>
         <div>
           <span className="text-slate-500">V:</span>{' '}
-          <span className="text-slate-300 font-bold">{(displayData.volume / 1000000).toFixed(2)}M</span>
+          <span className="text-slate-300 font-bold">{v !== null ? `${(v / 1000000).toFixed(2)}M` : '—'}</span>
         </div>
         <div className={`font-bold ${changeColor}`}>
-          {priceChange >= 0 ? '+' : ''}
-          {priceChange.toFixed(2)} ({priceChange >= 0 ? '+' : ''}
-          {pctChange.toFixed(2)}%)
+          {priceChange !== null ? (priceChange >= 0 ? '+' : '') + priceChange.toFixed(2) : '—'}
+          {pctChange !== null ? ` (${pctChange >= 0 ? '+' : ''}${pctChange.toFixed(2)}%)` : ''}
         </div>
       </div>
 
       {/* Lightweight Chart Container */}
-      <div ref={chartContainerRef} className="flex-1 w-full h-full min-h-0" />
+      <div id={containerId} ref={chartContainerRef} className="flex-1 w-full h-full min-h-0" />
     </div>
   );
 }

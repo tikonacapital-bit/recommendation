@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -19,7 +20,7 @@
   --color-text-1: #f1f5f9;
   --color-text-2: #94a3b8;
   --color-text-3: #475569;
-  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-sans: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
@@ -30,7 +31,7 @@
     height: 100%;
     background-color: #080c14;
     color: #f1f5f9;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -116,3 +117,164 @@
     z-index: 0;
   }
 }
+
+/* ── LIGHT MODE PREMIUM OVERRIDES ── */
+html.light {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+html.light body {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+}
+
+/* Dynamic hardcoded background adaptations to Light Mode using class substring matchers */
+html.light [class*="bg-[#080c14]"],
+html.light [class*="bg-[#070b12]"] {
+  background-color: #f8fafc !important;
+}
+
+html.light [class*="bg-[#0d1420]"],
+html.light [class*="bg-[#0b121f]"],
+html.light [class*="bg-[#0b0f19]"],
+html.light [class*="bg-[#0a101d]"] {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+html.light .bg-grid-pattern {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.015) 1px, transparent 1px) !important;
+  background-size: 32px 32px;
+}
+
+/* Card & Panel Overrides */
+html.light .bg-white\/\[0\.02\],
+html.light .bg-white\/\[0\.03\],
+html.light .bg-white\/\[0\.04\],
+html.light .bg-white\/\[0\.05\],
+html.light .bg-white\/\[0\.06\] {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+html.light .hover\:bg-white\/\[0\.04\]:hover,
+html.light .hover\:bg-white\/\[0\.05\]:hover,
+html.light .hover\:bg-white\/\[0\.07\]:hover,
+html.light .hover\:bg-white\/\[0\.1\]:hover {
+  background-color: rgba(15, 23, 42, 0.03) !important;
+}
+
+/* Glass & Header Overrides */
+html.light .glass {
+  background: rgba(255, 255, 255, 0.75) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+  color: #0f172a !important;
+}
+
+/* Text Overrides */
+html.light .text-slate-100,
+html.light .text-slate-200,
+html.light .text-slate-300,
+html.light .text-slate-400,
+html.light .text-slate-400\/80,
+html.light .text-indigo-400,
+html.light .text-slate-100.font-bold,
+html.light h1,
+html.light h2,
+html.light h3 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-500,
+html.light .text-slate-600 {
+  color: #64748b !important;
+}
+
+html.light .text-indigo-400\/80 {
+  color: #4f46e5 !important;
+}
+
+/* Borders */
+html.light .border-white\/\[0\.05\],
+html.light .border-white\/\[0\.06\],
+html.light .border-white\/\[0\.07\],
+html.light .border-white\/\[0\.08\] {
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Active sidebar indicators */
+html.light .bg-indigo-600\/20 {
+  background-color: rgba(99, 102, 241, 0.1) !important;
+  color: #4f46e5 !important;
+}
+
+html.light .text-indigo-400 {
+  color: #4f46e5 !important;
+}
+
+/* Inputs & Select Elements */
+html.light input,
+html.light select {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #0f172a !important;
+}
+
+html.light input::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.light select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* KPI Cards and dashboard specific */
+html.light .bg-white\/\[0\.03\] {
+  background-color: #ffffff !important;
+  border-color: rgba(15, 23, 42, 0.06) !important;
+}
+
+/* Soft orb gradients in light mode */
+html.light .orb {
+  filter: blur(120px) !important;
+  opacity: 0.45 !important;
+}
+
+/* Custom class for the OHLCV status bar in Light Mode */
+html.light .ohlcv-bar {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Force absolute contrast and visibility on OHLCV values & labels using tag hierarchies */
+html.light .ohlcv-bar span {
+  color: #0f172a !important; /* Bold primary dark slate for values */
+}
+
+html.light .ohlcv-bar span:first-child {
+  color: #64748b !important; /* Crisp secondary muted slate for labels like O:, H: */
+}
+
+/* Ensure clean options inside dropdown selections */
+html.light option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Premium dynamic Indigo highlighted key stats inside AI investment thesis in Light Mode */
+html.light .thesis-p strong {
+  background-color: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.15) !important;
+  color: #4f46e5 !important;
+}
+
+
+
+

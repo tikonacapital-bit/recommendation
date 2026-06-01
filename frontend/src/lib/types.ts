@@ -2,6 +2,7 @@ export interface StockAnalysis {
   ticker: string;
   name: string | null;
   sector: string | null;
+  market_cap?: number | null;
   composite_score: number | null;
   growth_score: number | null;
   durability_score: number | null;

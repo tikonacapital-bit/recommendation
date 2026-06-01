@@ -44,6 +44,7 @@ class StockAnalysisResponse(BaseModel):
     ticker: str
     name: str | None = None
     sector: str | None = None
+    market_cap: float | None = None
     composite_score: float | None = None
     growth_score: float | None = None
     durability_score: float | None = None

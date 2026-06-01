@@ -212,7 +212,7 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
       {item.thesis_paragraph && (
         <div>
           <div className="text-[10px] uppercase tracking-widest text-slate-600 font-semibold mb-2">AI Thesis</div>
-          <p className="text-sm text-slate-300 leading-relaxed bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
+          <p className="thesis-p text-sm text-slate-300 leading-relaxed bg-white/[0.02] rounded-xl p-4 border border-white/[0.05]">
             {renderFormattedText(item.thesis_paragraph)}
           </p>
         </div>
