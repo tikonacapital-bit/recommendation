@@ -4,7 +4,7 @@ import type { StockAnalysis, TopResponse } from '../lib/types';
 import { useToast } from '../components/Toast';
 import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries, HistogramSeries } from 'lightweight-charts';
 
-type ChartLayout = 'single' | 'dual' | 'quad';
+type ChartLayout = 'single' | 'dual' | 'quad' | 'all';
 type Timeframe = '5' | '15' | '60' | 'D' | 'W' | 'M';
 type ChartStyle = '1' | '2' | '3' | '8'; // 1=Candles, 2=Line, 3=Area, 8=Heikin Ashi
 
@@ -26,6 +26,7 @@ export default function ChartsView() {
   const [timeframe, setTimeframe] = useState<Timeframe>('D');
   const [chartStyle, setChartStyle] = useState<ChartStyle>('1');
   const [customSymbol, setCustomSymbol] = useState('');
+  const [showControls, setShowControls] = useState(true);
 
   // Load the tracked stocks universe for the sidebar
   const loadUniverse = useCallback(async () => {
@@ -110,16 +111,18 @@ export default function ChartsView() {
 
 
   const getLayoutGridClass = () => {
+    if (layout === 'all') return 'block overflow-y-auto pr-2 pb-4';
     if (layout === 'dual') return 'grid-cols-1 xl:grid-cols-2';
-    if (layout === 'quad') return 'grid-cols-1 md:grid-cols-2';
+    if (layout === 'quad') return 'grid-cols-1 md:grid-cols-2 grid-rows-4 md:grid-rows-2';
     return 'grid-cols-1';
   };
 
   return (
-    <div className="flex flex-col xl:flex-row gap-5 h-[calc(100vh-100px)] min-h-[550px] fade-in relative select-none">
+    <div className="flex flex-col xl:flex-row gap-5 h-[calc(100vh-70px)] min-h-[550px] fade-in relative select-none">
       
       {/* ── LEFT SIDEBAR: Stocks Universe List ── */}
-      <div className="w-full xl:w-72 bg-white/[0.02] border border-white/[0.07] rounded-2xl flex flex-col shrink-0 overflow-hidden h-full">
+      {(layout !== 'all' && layout !== 'quad') && (
+        <div className="w-full xl:w-72 bg-white/[0.02] border border-white/[0.07] rounded-2xl flex flex-col shrink-0 overflow-hidden h-full">
         {/* Search Header */}
         <div className="p-4 border-b border-white/[0.06] shrink-0 space-y-3">
           <div className="flex items-center justify-between">
@@ -214,12 +217,24 @@ export default function ChartsView() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── MAIN WORKSPACE PANEL ── */}
-      <div className="flex-1 flex flex-col gap-4 h-full min-w-0">
+      <div className="flex-1 flex flex-col gap-4 h-full min-w-0 relative">
         
+        {/* Toggle Controls Button (when hidden) */}
+        {!showControls && (
+          <button
+            onClick={() => setShowControls(true)}
+            className="absolute top-0 right-4 z-20 px-3 py-1.5 bg-indigo-600/80 hover:bg-indigo-500 text-white rounded-b-lg text-[10px] font-semibold backdrop-blur-md shadow-lg transition-all"
+          >
+            Show Controls
+          </button>
+        )}
+
         {/* Custom Controls Bar */}
-        <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl px-4 py-3 shrink-0 flex flex-wrap gap-4 items-center justify-between">
+        {showControls && (
+          <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl px-4 py-3 shrink-0 flex flex-wrap gap-4 items-center justify-between">
           <div className="flex items-center gap-4 flex-wrap">
             {/* Custom search symbol form */}
             <form onSubmit={handleCustomSymbolSubmit} className="relative flex items-center gap-2">
@@ -299,6 +314,11 @@ export default function ChartsView() {
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <rect x="3" y="3" width="18" height="18" rx="2" /><line x1="12" y1="3" x2="12" y2="21" /><line x1="3" y1="12" x2="21" y2="12" />
                   </svg>
+                )},
+                { id: 'all' as ChartLayout, label: 'All', icon: (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+                  </svg>
                 )}
               ].map(mode => (
                 <button
@@ -321,130 +341,169 @@ export default function ChartsView() {
                 </button>
               ))}
             </div>
+
+            <div className="h-4 w-px bg-white/10" />
+            
+            <button
+              onClick={() => setShowControls(false)}
+              className="px-2.5 py-1.5 text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5"
+              title="Hide Controls Bar"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+              <span className="hidden sm:inline">Hide</span>
+            </button>
           </div>
         </div>
+        )}
 
         {/* Charts Container Panel */}
         <div className="flex-1 flex gap-5 min-h-0">
           
           {/* Main Chart Matrix */}
-          <div className={`flex-1 grid gap-4 min-h-0 h-full ${getLayoutGridClass()}`}>
+          <div className={`flex-1 ${layout !== 'all' ? 'grid' : ''} gap-4 min-h-0 h-full ${getLayoutGridClass()}`}>
             
-            {/* Render chart for Slot 0 */}
-            <div
-              onClick={() => setActiveSlot(0)}
-              className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                activeSlot === 0
-                  ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                  : 'border-white/[0.06] hover:border-white/[0.12]'
-              }`}
-            >
-              {/* Slot Header */}
-              <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                <span className={activeSlot === 0 ? 'text-indigo-400' : 'text-slate-500'}>
-                  Panel 1: <span className="text-slate-300">{symbols[0]}</span>
-                </span>
-                <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
+            {layout === 'all' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6 w-full h-max">
+                {filteredStocks.map((stock, idx) => {
+                  const tvSym = translateTicker(stock.ticker);
+                  return (
+                    <div key={tvSym} className="relative bg-[#0d1420] rounded-2xl overflow-hidden border border-white/[0.06] flex flex-col shrink-0" style={{ minHeight: '450px' }}>
+                      <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                        <span className="text-indigo-400">
+                          #{idx + 1}: <span className="text-slate-300">{tvSym}</span>
+                        </span>
+                      </div>
+                      <div className="flex-1 w-full relative p-0 flex flex-col">
+                         <LazyTradingViewChart
+                            containerId={`tradingview_lazy_${idx}`}
+                            symbol={tvSym}
+                            timeframe={timeframe}
+                            chartStyle={chartStyle}
+                         />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <div className="flex-1 w-full h-full min-h-0 relative">
-                <TradingViewChart
-                  key={`tv-slot-0-${symbols[0]}-${timeframe}-${chartStyle}`}
-                  containerId="tradingview_slot_0"
-                  symbol={symbols[0]}
-                  timeframe={timeframe}
-                  chartStyle={chartStyle}
-                />
-              </div>
-            </div>
-
-            {/* Render Chart for Slot 1 (Split & Quad) */}
-            {layout !== 'single' && (
-              <div
-                onClick={() => setActiveSlot(1)}
-                className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                  activeSlot === 1
-                    ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                    : 'border-white/[0.06] hover:border-white/[0.12]'
-                }`}
-              >
-                <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                  <span className={activeSlot === 1 ? 'text-indigo-400' : 'text-slate-500'}>
-                    Panel 2: <span className="text-slate-300">{symbols[1]}</span>
-                  </span>
-                  {activeSlot === 1 && (
+            ) : (
+              <>
+                {/* Render chart for Slot 0 */}
+                <div
+                  onClick={() => setActiveSlot(0)}
+                  className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
+                    activeSlot === 0
+                      ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                      : 'border-white/[0.06] hover:border-white/[0.12]'
+                  }`}
+                >
+                  {/* Slot Header */}
+                  <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                    <span className={activeSlot === 0 ? 'text-indigo-400' : 'text-slate-500'}>
+                      Panel 1: <span className="text-slate-300">{symbols[0]}</span>
+                    </span>
                     <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
-                  )}
+                  </div>
+                  <div className="flex-1 w-full h-full min-h-0 relative">
+                    <TradingViewChart
+                      key={`tv-slot-0-${symbols[0]}-${timeframe}-${chartStyle}`}
+                      containerId="tradingview_slot_0"
+                      symbol={symbols[0]}
+                      timeframe={timeframe}
+                      chartStyle={chartStyle}
+                    />
+                  </div>
                 </div>
-                <div className="flex-1 w-full h-full min-h-0 relative">
-                  <TradingViewChart
-                    key={`tv-slot-1-${symbols[1]}-${timeframe}-${chartStyle}`}
-                    containerId="tradingview_slot_1"
-                    symbol={symbols[1]}
-                    timeframe={timeframe}
-                    chartStyle={chartStyle}
-                  />
-                </div>
-              </div>
-            )}
 
-            {/* Render Slot 2 (Quad only) */}
-            {layout === 'quad' && (
-              <div
-                onClick={() => setActiveSlot(2)}
-                className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                  activeSlot === 2
-                    ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                    : 'border-white/[0.06] hover:border-white/[0.12]'
-                }`}
-              >
-                <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                  <span className={activeSlot === 2 ? 'text-indigo-400' : 'text-slate-500'}>
-                    Panel 3: <span className="text-slate-300">{symbols[2]}</span>
-                  </span>
-                  {activeSlot === 2 && (
-                    <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
-                  )}
-                </div>
-                <div className="flex-1 w-full h-full min-h-0 relative">
-                  <TradingViewChart
-                    key={`tv-slot-2-${symbols[2]}-${timeframe}-${chartStyle}`}
-                    containerId="tradingview_slot_2"
-                    symbol={symbols[2]}
-                    timeframe={timeframe}
-                    chartStyle={chartStyle}
-                  />
-                </div>
-              </div>
-            )}
+                {/* Render Chart for Slot 1 (Split & Quad) */}
+                {layout !== 'single' && (
+                  <div
+                    onClick={() => setActiveSlot(1)}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
+                      activeSlot === 1
+                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                        : 'border-white/[0.06] hover:border-white/[0.12]'
+                    }`}
+                  >
+                    <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                      <span className={activeSlot === 1 ? 'text-indigo-400' : 'text-slate-500'}>
+                        Panel 2: <span className="text-slate-300">{symbols[1]}</span>
+                      </span>
+                      {activeSlot === 1 && (
+                        <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
+                      )}
+                    </div>
+                    <div className="flex-1 w-full h-full min-h-0 relative">
+                      <TradingViewChart
+                        key={`tv-slot-1-${symbols[1]}-${timeframe}-${chartStyle}`}
+                        containerId="tradingview_slot_1"
+                        symbol={symbols[1]}
+                        timeframe={timeframe}
+                        chartStyle={chartStyle}
+                      />
+                    </div>
+                  </div>
+                )}
 
-            {/* Render Slot 3 (Quad only) */}
-            {layout === 'quad' && (
-              <div
-                onClick={() => setActiveSlot(3)}
-                className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
-                  activeSlot === 3
-                    ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
-                    : 'border-white/[0.06] hover:border-white/[0.12]'
-                }`}
-              >
-                <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                  <span className={activeSlot === 3 ? 'text-indigo-400' : 'text-slate-500'}>
-                    Panel 4: <span className="text-slate-300">{symbols[3]}</span>
-                  </span>
-                  {activeSlot === 3 && (
-                    <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
-                  )}
-                </div>
-                <div className="flex-1 w-full h-full min-h-0 relative">
-                  <TradingViewChart
-                    key={`tv-slot-3-${symbols[3]}-${timeframe}-${chartStyle}`}
-                    containerId="tradingview_slot_3"
-                    symbol={symbols[3]}
-                    timeframe={timeframe}
-                    chartStyle={chartStyle}
-                  />
-                </div>
-              </div>
+                {/* Render Slot 2 (Quad only) */}
+                {layout === 'quad' && (
+                  <div
+                    onClick={() => setActiveSlot(2)}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
+                      activeSlot === 2
+                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                        : 'border-white/[0.06] hover:border-white/[0.12]'
+                    }`}
+                  >
+                    <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                      <span className={activeSlot === 2 ? 'text-indigo-400' : 'text-slate-500'}>
+                        Panel 3: <span className="text-slate-300">{symbols[2]}</span>
+                      </span>
+                      {activeSlot === 2 && (
+                        <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
+                      )}
+                    </div>
+                    <div className="flex-1 w-full h-full min-h-0 relative">
+                      <TradingViewChart
+                        key={`tv-slot-2-${symbols[2]}-${timeframe}-${chartStyle}`}
+                        containerId="tradingview_slot_2"
+                        symbol={symbols[2]}
+                        timeframe={timeframe}
+                        chartStyle={chartStyle}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Render Slot 3 (Quad only) */}
+                {layout === 'quad' && (
+                  <div
+                    onClick={() => setActiveSlot(3)}
+                    className={`relative bg-[#0d1420] rounded-2xl overflow-hidden border transition-all flex flex-col h-full ${
+                      activeSlot === 3
+                        ? 'border-indigo-500 shadow-[0_0_20px_rgba(99,102,241,0.15)]'
+                        : 'border-white/[0.06] hover:border-white/[0.12]'
+                    }`}
+                  >
+                    <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                      <span className={activeSlot === 3 ? 'text-indigo-400' : 'text-slate-500'}>
+                        Panel 4: <span className="text-slate-300">{symbols[3]}</span>
+                      </span>
+                      {activeSlot === 3 && (
+                        <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
+                      )}
+                    </div>
+                    <div className="flex-1 w-full h-full min-h-0 relative">
+                      <TradingViewChart
+                        key={`tv-slot-3-${symbols[3]}-${timeframe}-${chartStyle}`}
+                        containerId="tradingview_slot_3"
+                        symbol={symbols[3]}
+                        timeframe={timeframe}
+                        chartStyle={chartStyle}
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
           </div>
@@ -460,6 +519,39 @@ interface TradingViewChartProps {
   symbol: string;
   timeframe: string;
   chartStyle: string;
+}
+
+function LazyTradingViewChart(props: TradingViewChartProps) {
+  const [inView, setInView] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setInView(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '300px' }
+    );
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex-1 w-full h-full flex flex-col">
+      {inView ? (
+        <TradingViewChart {...props} />
+      ) : (
+        <div className="flex-1 w-full flex items-center justify-center bg-[#070b12] text-slate-500 text-xs font-mono rounded-b-2xl">
+          <div className="w-6 h-6 border-2 border-indigo-600/30 border-t-indigo-600 rounded-full animate-spin mr-3" />
+          Loading {props.symbol} chart data...
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: TradingViewChartProps) {

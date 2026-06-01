@@ -85,7 +85,7 @@ function AppInner() {
       {/* Main */}
       <div className={`relative min-h-screen flex flex-col transition-all duration-300 ${sidebarWidth}`}>
         {/* Topbar */}
-        <header className="sticky top-0 z-20 glass border-b border-white/[0.07] px-4 lg:px-6 py-3">
+        <header className="sticky top-0 z-20 glass border-b border-white/[0.07] px-4 lg:px-6 py-1.5">
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-1">
               {/* Hamburger */}
@@ -108,7 +108,7 @@ function AppInner() {
                   <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
                 <input
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-10 py-2 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all font-mono"
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-10 py-1.5 text-sm text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20 transition-all font-mono"
                   placeholder="Search ticker… e.g. TCS.NS"
                   value={ticker}
                   onChange={e => setTicker(e.target.value)}
@@ -130,7 +130,7 @@ function AppInner() {
                 onClick={() => {
                   if (ticker.trim()) setView('dashboard');
                 }}
-                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.07] transition-all"
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.07] transition-all"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polyline points="23 4 23 10 17 10"/>
@@ -146,7 +146,7 @@ function AppInner() {
                     setView('analyze');
                   }
                 }}
-                className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.07] transition-all"
+                className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 bg-white/[0.03] hover:bg-white/[0.07] border border-white/[0.07] transition-all"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
@@ -156,7 +156,7 @@ function AppInner() {
 
               <button
                 onClick={() => { setView('pipeline'); }}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors font-medium"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs bg-indigo-600 hover:bg-indigo-500 text-white transition-colors font-medium"
               >
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <polygon points="5 3 19 12 5 21 5 3"/>
@@ -185,7 +185,7 @@ function AppInner() {
         )}
 
         {/* Content */}
-        <main className="flex-1 px-4 lg:px-6 py-6">
+        <main className="flex-1 px-4 lg:px-6 py-2">
           <div className={view === 'dashboard' ? 'block' : 'hidden'}>
             <DashboardView tickerInput={ticker} onTickerChange={setTicker} />
           </div>
