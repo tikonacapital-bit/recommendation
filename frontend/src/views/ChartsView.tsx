@@ -5,7 +5,7 @@ import { useToast } from '../components/Toast';
 import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries, HistogramSeries } from 'lightweight-charts';
 
 type ChartLayout = 'single' | 'dual' | 'quad' | 'all';
-type Timeframe = 'D' | 'W' | 'M' | '6M' | '12M';
+type Timeframe = '6M' | '1Y' | '2Y' | '3Y' | '5Y' | '10Y' | 'D' | 'W' | 'M';
 type ChartStyle = '1' | '2' | '3' | '8'; // 1=Candles, 2=Line, 3=Area, 8=Heikin Ashi
 
 export default function ChartsView() {
@@ -14,7 +14,30 @@ export default function ChartsView() {
   const [loadingUniverse, setLoadingUniverse] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSector, setSelectedSector] = useState<string>('All');
-  const [minMarketCapCr, setMinMarketCapCr] = useState<number>(0);
+  const [minMarketCapCr, setMinMarketCapCr] = useState<number | null>(0);
+  const [maxMarketCapCr, setMaxMarketCapCr] = useState<number | null>(null);
+  const [activePreset, setActivePreset] = useState<string>('all');
+  const [customMin, setCustomMin] = useState<number | null>(null);
+  const [customMax, setCustomMax] = useState<number | null>(null);
+  const [isMarketCapExpanded, setIsMarketCapExpanded] = useState<boolean>(true);
+
+  const handlePresetClick = (presetId: string, min: number | null, max: number | null) => {
+    setActivePreset(presetId);
+    setMinMarketCapCr(min);
+    setMaxMarketCapCr(max);
+    setCustomMin(null);
+    setCustomMax(null);
+  };
+
+  const handleCustomSubmit = () => {
+    if (customMin === null && customMax === null) {
+      handlePresetClick('all', 0, null);
+      return;
+    }
+    setActivePreset('custom');
+    setMinMarketCapCr(customMin);
+    setMaxMarketCapCr(customMax);
+  };
 
   // Multi-chart slot management (max 4 slots for quad view)
   const [symbols, setSymbols] = useState<string[]>([
@@ -25,10 +48,42 @@ export default function ChartsView() {
   ]);
   const [activeSlot, setActiveSlot] = useState<number>(0);
   const [layout, setLayout] = useState<ChartLayout>('single');
-  const [timeframe, setTimeframe] = useState<Timeframe>('12M');
+  const [timeframe, setTimeframe] = useState<Timeframe>('1Y');
   const [chartStyle, setChartStyle] = useState<ChartStyle>('1');
   const [customSymbol, setCustomSymbol] = useState('');
   const [showControls, setShowControls] = useState(true);
+
+  // Multi-select Watchlist and Fullscreen Presenter
+  const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
+  const [isFullscreenPresenterOpen, setIsFullscreenPresenterOpen] = useState(false);
+
+  const handleToggleSelectTicker = (ticker: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const tvSym = translateTicker(ticker);
+    setSelectedTickers(prev => {
+      if (prev.includes(tvSym)) {
+        return prev.filter(t => t !== tvSym);
+      } else {
+        return [...prev, tvSym];
+      }
+    });
+  };
+
+  const handleSelectAllFiltered = () => {
+    const allFilteredSyms = filteredStocks.map(s => translateTicker(s.ticker));
+    const allSelected = allFilteredSyms.every(sym => selectedTickers.includes(sym));
+    if (allSelected) {
+      setSelectedTickers(prev => prev.filter(sym => !allFilteredSyms.includes(sym)));
+    } else {
+      setSelectedTickers(prev => {
+        const next = [...prev];
+        allFilteredSyms.forEach(sym => {
+          if (!next.includes(sym)) next.push(sym);
+        });
+        return next;
+      });
+    }
+  };
 
   // Load the tracked stocks universe for the sidebar
   const loadUniverse = useCallback(async () => {
@@ -99,11 +154,13 @@ export default function ChartsView() {
 
       // 3. Market Cap filter (Rupees to Crores)
       const marketCapCr = stock.market_cap ? stock.market_cap / 10000000 : 0;
-      const matchesMarketCap = minMarketCapCr === 0 || marketCapCr >= minMarketCapCr;
+      const matchesMinCap = minMarketCapCr === 0 || minMarketCapCr === null || marketCapCr >= minMarketCapCr;
+      const matchesMaxCap = maxMarketCapCr === null || marketCapCr <= maxMarketCapCr;
+      const matchesMarketCap = matchesMinCap && matchesMaxCap;
 
       return matchesSearch && matchesSector && matchesMarketCap;
     });
-  }, [data, searchQuery, selectedSector, minMarketCapCr]);
+  }, [data, searchQuery, selectedSector, minMarketCapCr, maxMarketCapCr]);
 
   // Handle ticker selection from the sidebar
   const handleSelectStock = (stock: StockAnalysis) => {
@@ -140,6 +197,14 @@ export default function ChartsView() {
 
   return (
     <div className="flex flex-col xl:flex-row gap-5 h-[calc(100vh-70px)] min-h-[550px] fade-in relative select-none">
+      {isFullscreenPresenterOpen && selectedTickers.length > 0 && (
+        <FullscreenPresenter
+          selectedTickers={selectedTickers}
+          onClose={() => setIsFullscreenPresenterOpen(false)}
+          timeframe={timeframe}
+          chartStyle={chartStyle}
+        />
+      )}
 
       {/* ── LEFT SIDEBAR: Stocks Universe List ── */}
       {(layout !== 'all' && layout !== 'quad') && (
@@ -148,9 +213,20 @@ export default function ChartsView() {
           <div className="p-4 border-b border-white/[0.06] shrink-0 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-slate-200">Tracked Universe</h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
-                {filteredStocks.length}
-              </span>
+              <div className="flex items-center gap-2">
+                {filteredStocks.length > 0 && (
+                  <button
+                    onClick={handleSelectAllFiltered}
+                    className="text-[9px] text-slate-500 hover:text-indigo-400 transition-colors font-bold uppercase tracking-wide cursor-pointer"
+                    title="Toggle selection of all filtered stocks"
+                  >
+                    {filteredStocks.every(s => selectedTickers.includes(translateTicker(s.ticker))) ? 'Deselect All' : 'Select All'}
+                  </button>
+                )}
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
+                  {filteredStocks.length}
+                </span>
+              </div>
             </div>
 
             <div className="relative">
@@ -174,8 +250,8 @@ export default function ChartsView() {
               />
             </div>
 
-            {/* Quick Dropdown Filters */}
-            <div className="grid grid-cols-2 gap-2 pt-1">
+            {/* Quick Dropdown & Cap Card Filters */}
+            <div className="space-y-3 pt-1">
               <div className="space-y-1">
                 <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Sector</label>
                 <select
@@ -191,20 +267,91 @@ export default function ChartsView() {
                 </select>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Mkt Cap</label>
-                <select
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-indigo-500/50 cursor-pointer font-medium"
-                  value={minMarketCapCr}
-                  onChange={e => setMinMarketCapCr(Number(e.target.value))}
+              {/* By Market Cap Custom Selection Widget */}
+              <div className="space-y-1.5 border-t border-white/[0.05] pt-3.5">
+                <div 
+                  onClick={() => setIsMarketCapExpanded(prev => !prev)}
+                  className="flex items-center justify-between text-[9px] text-slate-500 font-bold uppercase tracking-wider cursor-pointer hover:text-slate-300 transition-colors select-none"
                 >
-                  <option value={0} className="bg-[#0b0f19] text-slate-300">All</option>
-                  <option value={100} className="bg-[#0b0f19] text-slate-300">100 Cr+</option>
-                  <option value={500} className="bg-[#0b0f19] text-slate-300">500 Cr+</option>
-                  <option value={1000} className="bg-[#0b0f19] text-slate-300">1,000 Cr+</option>
-                  <option value={5000} className="bg-[#0b0f19] text-slate-300">5,000 Cr+</option>
-                  <option value={10000} className="bg-[#0b0f19] text-slate-300">10,000 Cr+</option>
-                </select>
+                  <span>By Market Cap</span>
+                  <svg 
+                    width="10" 
+                    height="10" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2.5" 
+                    className={`text-slate-500 transition-transform duration-200 ${isMarketCapExpanded ? 'rotate-0' : '-rotate-90'}`}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                </div>
+
+                {isMarketCapExpanded && (
+                  <div className="bg-white/[0.02] border border-white/[0.07] rounded-xl p-2.5 space-y-1.5">
+                    {[
+                      { id: 'all', label: 'All', min: 0, max: null },
+                      { id: '0-50', label: '0 - 50 Cr', min: 0, max: 50 },
+                      { id: '50-500', label: '50 - 500 Cr', min: 50, max: 500 },
+                      { id: '500-5000', label: '500 - 5,000 Cr', min: 500, max: 5000 },
+                      { id: '5000+', label: '> 5,000 Cr', min: 5000, max: null }
+                    ].map(preset => {
+                      const isSelected = activePreset === preset.id;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handlePresetClick(preset.id, preset.min, preset.max)}
+                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] transition-all text-left cursor-pointer
+                            ${isSelected
+                              ? 'bg-indigo-600/15 text-indigo-400 font-bold'
+                              : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+                            }`}
+                        >
+                          <span>{preset.label}</span>
+                          {isSelected && (
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3.5"
+                              className="text-indigo-400 shrink-0"
+                            >
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom Inputs Row */}
+                    <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.04]">
+                      <input
+                        type="number"
+                        placeholder="Min"
+                        value={customMin === null ? '' : customMin}
+                        onChange={e => setCustomMin(e.target.value === '' ? null : Number(e.target.value))}
+                        className="w-14 bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/40 text-center font-mono focus:ring-1 focus:ring-indigo-500/20"
+                      />
+                      <input
+                        type="number"
+                        placeholder="Max"
+                        value={customMax === null ? '' : customMax}
+                        onChange={e => setCustomMax(e.target.value === '' ? null : Number(e.target.value))}
+                        className="w-14 bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/40 text-center font-mono focus:ring-1 focus:ring-indigo-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCustomSubmit}
+                        className="flex-1 py-1 bg-white/[0.06] hover:bg-indigo-600 border border-white/[0.08] hover:border-indigo-500 text-slate-300 hover:text-white rounded-lg text-[10px] font-bold transition-all text-center cursor-pointer uppercase tracking-wider font-mono shadow-sm"
+                      >
+                        Go
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -239,9 +386,18 @@ export default function ChartsView() {
                       }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold font-mono text-indigo-400 group-hover:text-indigo-300 transition-colors">
-                        {stock.ticker}
-                      </span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <input
+                          type="checkbox"
+                          checked={selectedTickers.includes(tvSym)}
+                          onClick={(e) => handleToggleSelectTicker(stock.ticker, e)}
+                          onChange={() => {}}
+                          className="w-3.5 h-3.5 rounded border border-white/[0.15] bg-[#0a101d] text-indigo-600 focus:ring-indigo-500 focus:ring-offset-[#080c14] cursor-pointer accent-indigo-600 transition-all shrink-0"
+                        />
+                        <span className="text-xs font-bold font-mono text-indigo-400 group-hover:text-indigo-300 transition-colors">
+                          {stock.ticker}
+                        </span>
+                      </div>
                       <div className="flex items-center gap-1.5 shrink-0">
                         {stock.composite_score != null && (
                           <span
@@ -293,6 +449,19 @@ export default function ChartsView() {
         {showControls && (
           <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl px-4 py-3 shrink-0 flex flex-wrap gap-4 items-center justify-between">
             <div className="flex items-center gap-4 flex-wrap">
+              {/* Select Company Dropdown */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Company:</span>
+                <CompanySelect
+                  stocks={data}
+                  onSelect={handleSelectStock}
+                  activeTvSymbol={symbols[activeSlot]}
+                  translateTicker={translateTicker}
+                />
+              </div>
+
+              <div className="h-4 w-px bg-white/10" />
+
               {/* Custom search symbol form */}
               <form onSubmit={handleCustomSymbolSubmit} className="relative flex items-center gap-2">
                 <input
@@ -313,7 +482,7 @@ export default function ChartsView() {
 
               {/* Timeframe selector */}
               <div className="flex bg-white/[0.03] border border-white/[0.07] rounded-lg p-0.5 text-[11px] font-mono">
-                {(['D', 'W', 'M', '6M', '12M'] as Timeframe[]).map(tf => (
+                {(['D', 'W', 'M', '6M', '1Y', '2Y', '3Y', '5Y', '10Y'] as Timeframe[]).map(tf => (
                   <button
                     key={tf}
                     onClick={() => setTimeframe(tf)}
@@ -403,6 +572,32 @@ export default function ChartsView() {
                   </button>
                 ))}
               </div>
+
+              {selectedTickers.length > 0 && (
+                <>
+                  <div className="h-4 w-px bg-white/10" />
+                  <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 rounded-xl px-3 py-1 animate-pulse shrink-0">
+                    <span className="text-[10px] font-bold text-indigo-300 font-mono">
+                      {selectedTickers.length} Selected
+                    </span>
+                    <button
+                      onClick={() => setIsFullscreenPresenterOpen(true)}
+                      className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 shadow-md hover:shadow-indigo-500/20 cursor-pointer"
+                    >
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+                      </svg>
+                      View Fullscreen
+                    </button>
+                    <button
+                      onClick={() => setSelectedTickers([])}
+                      className="text-slate-500 hover:text-slate-300 text-[10px] font-bold font-mono cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </>
+              )}
 
               <div className="h-4 w-px bg-white/10" />
 
@@ -637,7 +832,11 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
 
   const periodMap: Record<string, string> = {
     '6M': '6mo',
-    '12M': '1y',
+    '1Y': '1y',
+    '2Y': '2y',
+    '3Y': '5y',  // Fetch 5y from Yahoo and filter to last 3y
+    '5Y': '5y',
+    '10Y': '10y',
     'D': '2y',
     'W': '5y',
     'M': 'max'
@@ -645,7 +844,11 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
 
   const intervalMap: Record<string, string> = {
     '6M': '1d',
-    '12M': '1d',
+    '1Y': '1d',
+    '2Y': '1d',
+    '3Y': '1d',
+    '5Y': '1wk',
+    '10Y': '1mo',
     'D': '1d',
     'W': '1wk',
     'M': '1mo'
@@ -662,12 +865,19 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
       );
 
       // Filter out any candles where yfinance returned null/NaN for prices
-      const validCandles = (data.candles || []).filter(c =>
+      let validCandles = (data.candles || []).filter(c =>
         c.open != null && !isNaN(c.open) &&
         c.high != null && !isNaN(c.high) &&
         c.low != null && !isNaN(c.low) &&
         c.close != null && !isNaN(c.close)
       );
+
+      // If timeframe is 3Y, we fetched 5Y. Let's filter to last 3 years.
+      if (timeframe === '3Y') {
+        const threeYearsAgo = new Date();
+        threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
+        validCandles = validCandles.filter(c => new Date(c.time) >= threeYearsAgo);
+      }
 
       setCandles(validCandles);
     } catch (e) {
@@ -934,6 +1144,240 @@ function TradingViewChart({ containerId, symbol, timeframe, chartStyle }: Tradin
 
       {/* Lightweight Chart Container */}
       <div id={containerId} ref={chartContainerRef} className="flex-1 w-full h-full min-h-0" />
+    </div>
+  );
+}
+
+interface CompanySelectProps {
+  stocks: StockAnalysis[];
+  onSelect: (stock: StockAnalysis) => void;
+  activeTvSymbol: string;
+  translateTicker: (t: string) => string;
+}
+
+function CompanySelect({ stocks, onSelect, activeTvSymbol, translateTicker }: CompanySelectProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const currentStock = stocks.find(s => translateTicker(s.ticker) === activeTvSymbol);
+  const displayText = currentStock 
+    ? `${currentStock.ticker.replace('.NS', '').replace('.BO', '')} - ${currentStock.name || ''}`
+    : activeTvSymbol || 'Select Company…';
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return stocks;
+    const q = search.toLowerCase();
+    return stocks.filter(s => 
+      s.ticker.toLowerCase().includes(q) || 
+      (s.name && s.name.toLowerCase().includes(q))
+    );
+  }, [stocks, search]);
+
+  return (
+    <div ref={containerRef} className="relative w-64 z-30">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(prev => !prev);
+          if (!open) setSearch('');
+        }}
+        className={`w-full flex items-center justify-between gap-2.5 bg-white/[0.04] border rounded-xl px-3 py-2 text-xs text-left transition-all outline-none cursor-pointer
+          ${open
+            ? 'border-indigo-500/50 ring-1 ring-indigo-500/20 text-slate-200'
+            : 'border-white/[0.08] text-slate-300 hover:border-white/20 hover:bg-white/[0.06]'
+          }`}
+      >
+        <span className="truncate font-semibold text-slate-200">{displayText}</span>
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          className={`shrink-0 text-slate-500 transition-transform duration-200 ${open ? 'rotate-180' : ''}`}
+        >
+          <polyline points="6 9 12 15 18 9" />
+        </svg>
+      </button>
+
+      {open && (
+        <div
+          className="absolute z-50 mt-1.5 w-full bg-[#0d1420] border border-white/[0.1] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-80"
+          style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.65)' }}
+        >
+          <div className="p-2 border-b border-white/[0.06] bg-white/[0.01]">
+            <input
+              type="text"
+              autoFocus
+              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-1 text-xs text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/30 transition-all"
+              placeholder="Search by company or ticker…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+
+          <div className="overflow-y-auto py-1 divide-y divide-white/[0.02]">
+            {filtered.length === 0 ? (
+              <div className="px-3.5 py-4 text-center text-xs text-slate-500">
+                No companies found
+              </div>
+            ) : (
+              filtered.map(stock => {
+                const isSelected = translateTicker(stock.ticker) === activeTvSymbol;
+                const cleanTicker = stock.ticker.replace('.NS', '').replace('.BO', '');
+                return (
+                  <button
+                    key={stock.ticker}
+                    type="button"
+                    onClick={() => {
+                      onSelect(stock);
+                      setOpen(false);
+                    }}
+                    className={`w-full text-left px-3.5 py-2 text-[11px] transition-colors flex flex-col gap-0.5 cursor-pointer
+                      ${isSelected
+                        ? 'bg-indigo-600/15 text-indigo-400 font-bold border-l-2 border-indigo-500'
+                        : 'text-slate-300 hover:bg-white/[0.04] hover:text-slate-100'
+                      }`}
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="font-mono text-indigo-400 font-bold">{cleanTicker}</span>
+                      {stock.composite_score != null && (
+                        <span className="text-[10px] text-slate-500 font-mono">Score: {stock.composite_score.toFixed(0)}</span>
+                      )}
+                    </div>
+                    <span className="text-slate-500 text-[10px] truncate max-w-full">{stock.name || '—'}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FullscreenPresenter({
+  selectedTickers,
+  onClose,
+  timeframe,
+  chartStyle,
+}: {
+  selectedTickers: string[];
+  onClose: () => void;
+  timeframe: string;
+  chartStyle: string;
+}) {
+  // ESC key to exit
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-[#070b13] flex flex-col animate-fade-in font-sans">
+      {/* Header bar */}
+      <div className="bg-[#0b121f] border-b border-white/[0.08] px-6 py-4 flex items-center justify-between shrink-0 select-none">
+        <div className="flex items-center gap-4">
+          <button
+            onClick={onClose}
+            className="p-2 rounded-xl hover:bg-white/[0.06] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer flex items-center justify-center"
+            title="Exit Fullscreen"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+          
+          <div className="h-5 w-px bg-white/10" />
+
+          <div>
+            <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <span className="text-indigo-400">Fullscreen Watchlist Grid</span>
+              <span className="text-slate-500 text-xs font-mono font-medium">
+                ({selectedTickers.length} assets selected)
+              </span>
+            </h2>
+          </div>
+        </div>
+
+        {/* Selected Ticker Summary Badges */}
+        <div className="hidden lg:flex items-center gap-1.5 max-w-xl overflow-x-auto px-4 py-1 scrollbar-none">
+          {selectedTickers.map((ticker) => (
+            <span
+              key={ticker}
+              className="px-2.5 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[10px] font-mono font-bold shrink-0"
+            >
+              {ticker.replace('NSE:', '').replace('BSE:', '')}
+            </span>
+          ))}
+        </div>
+
+        {/* Done / Exit */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all hover:shadow-[0_0_12px_rgba(99,102,241,0.4)] cursor-pointer"
+          >
+            Exit Fullscreen
+          </button>
+        </div>
+      </div>
+
+      {/* Main Grid Scroll Area */}
+      <div className="flex-1 w-full overflow-y-auto p-6 bg-[#080c14]">
+        {/* Navigation hotkey guide */}
+        <div className="fixed bottom-4 right-4 z-20 text-[10px] text-slate-600 bg-[#0d1420]/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-white/[0.05] pointer-events-none select-none font-mono flex items-center gap-2 shadow-lg">
+          <span>Keyboard:</span>
+          <kbd className="bg-white/5 border border-white/10 px-1 py-0.2 rounded">ESC</kbd>
+          <span>to exit</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6 w-full max-w-[1800px] mx-auto pb-8">
+          {selectedTickers.map((tvSym, idx) => (
+            <div
+              key={tvSym}
+              className="relative bg-[#0d1420] rounded-2xl overflow-hidden border border-white/[0.06] flex flex-col shrink-0 shadow-lg hover:border-white/[0.12] transition-colors"
+              style={{ minHeight: '480px', height: '480px' }}
+            >
+              {/* Header */}
+              <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
+                <span className="text-indigo-400">
+                  #{idx + 1}: <span className="text-slate-300">{tvSym}</span>
+                </span>
+              </div>
+              
+              {/* Chart */}
+              <div className="flex-1 w-full relative p-0 flex flex-col">
+                <LazyTradingViewChart
+                  containerId={`tradingview_fullscreen_lazy_${idx}`}
+                  symbol={tvSym}
+                  timeframe={timeframe}
+                  chartStyle={chartStyle}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
