@@ -63,6 +63,8 @@ class StockAnalysisResponse(BaseModel):
     confidence_score: float | None = None
     agent_outputs: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime | None = None
+    previous_tier: int | None = None
+    previous_composite_score: float | None = None
 
 
 class TopResponse(BaseModel):

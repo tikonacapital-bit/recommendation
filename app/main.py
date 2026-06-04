@@ -49,7 +49,11 @@ def web_app() -> FileResponse:
     return FileResponse("app/static/index.html")
 
 
-def _analysis_to_response(analysis: StockAnalysis) -> StockAnalysisResponse:
+def _analysis_to_response(
+    analysis: StockAnalysis,
+    previous_tier: int | None = None,
+    previous_composite_score: float | None = None,
+) -> StockAnalysisResponse:
     stock = analysis.stock
     return StockAnalysisResponse(
         ticker=stock.ticker,
@@ -74,6 +78,8 @@ def _analysis_to_response(analysis: StockAnalysis) -> StockAnalysisResponse:
         confidence_score=analysis.confidence_score,
         agent_outputs=analysis.agent_outputs or {},
         created_at=analysis.created_at,
+        previous_tier=previous_tier,
+        previous_composite_score=previous_composite_score,
     )
 
 
@@ -143,6 +149,56 @@ def list_sectors(db: Session = Depends(get_db)) -> dict:
         .all()
     )
     return {"sectors": [r[0] for r in rows if r[0]]}
+
+
+@app.get("/universe/promoted", response_model=TopResponse)
+def universe_promoted(db: Session = Depends(get_db)) -> TopResponse:
+    """Retrieve stocks that transitioned from Tier 2 in their previous run to Tier 1 in their latest run."""
+    query_str = """
+        WITH ranked_analyses AS (
+            SELECT 
+                id, 
+                stock_id,
+                tier_reached,
+                composite_score,
+                ROW_NUMBER() OVER (PARTITION BY stock_id ORDER BY created_at DESC, id DESC) as rn
+            FROM stock_analysis
+        )
+        SELECT 
+            cur.id AS cur_id,
+            prev.tier_reached AS prev_tier,
+            prev.composite_score AS prev_score
+        FROM ranked_analyses cur
+        JOIN ranked_analyses prev ON cur.stock_id = prev.stock_id AND cur.rn = 1 AND prev.rn = 2
+        WHERE cur.tier_reached = 1 AND prev.tier_reached = 2
+    """
+    results = db.execute(text(query_str)).fetchall()
+    if not results:
+        return TopResponse(count=0, results=[])
+        
+    id_map = {row[0]: (row[1], row[2]) for row in results}
+    cur_ids = list(id_map.keys())
+    
+    analyses = (
+        db.query(StockAnalysis)
+        .filter(StockAnalysis.id.in_(cur_ids))
+        .join(Stock)
+        .order_by(desc(StockAnalysis.composite_score))
+        .all()
+    )
+    
+    response_results = []
+    for item in analyses:
+        prev_tier, prev_score = id_map[item.id]
+        response_results.append(
+            _analysis_to_response(
+                item,
+                previous_tier=prev_tier,
+                previous_composite_score=prev_score
+            )
+        )
+        
+    return TopResponse(count=len(response_results), results=response_results)
 
 
 @app.get("/view/{ticker}", response_model=StockAnalysisResponse)

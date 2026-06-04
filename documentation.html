@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AlphaLens: Multi-Agent Equity Research & Recommendation System</title>
+    <style>
+        body {
+            font-family: "Segoe UI", Arial, sans-serif;
+            line-height: 1.6;
+            color: #333333;
+            margin: 40px;
+            background-color: #ffffff;
+        }
+        h1 {
+            color: #1e3a8a;
+            border-bottom: 3px solid #1e3a8a;
+            padding-bottom: 10px;
+            font-size: 28px;
+            margin-top: 0;
+        }
+        h2 {
+            color: #2563eb;
+            border-bottom: 1.5px solid #e5e7eb;
+            padding-bottom: 6px;
+            font-size: 20px;
+            margin-top: 30px;
+        }
+        h3 {
+            color: #1d4ed8;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        p, li {
+            font-size: 14px;
+            color: #4b5563;
+        }
+        ul, ol {
+            margin-left: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            font-size: 13px;
+        }
+        th {
+            background-color: #f3f4f6;
+            color: #1f2937;
+            font-weight: bold;
+            text-align: left;
+            border: 1px solid #d1d5db;
+            padding: 8px;
+        }
+        td {
+            border: 1px solid #d1d5db;
+            padding: 8px;
+            vertical-align: top;
+        }
+        tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+        .code-block {
+            background-color: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-left: 4px solid #2563eb;
+            padding: 12px;
+            font-family: Consolas, "Courier New", monospace;
+            font-size: 13px;
+            color: #1f2937;
+            white-space: pre-wrap;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .highlight {
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-left: 4px solid #3b82f6;
+            padding: 12px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 11px;
+            font-weight: bold;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+        .badge-buy { background-color: #d1fae5; color: #065f46; }
+        .badge-hold { background-color: #fef3c7; color: #92400e; }
+        .badge-avoid { background-color: #fee2e2; color: #991b1b; }
+        .footer {
+            margin-top: 50px;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
+            font-size: 12px;
+            color: #9ca3af;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Project Documentation: AlphaLens Equity Research & Stock Recommendation System</h1>
+    <p><strong>Prepared for:</strong> Academic / Institutional Project Review</p>
+    <p><strong>System Name:</strong> AlphaLens Multi-Agent System</p>
+    <p><strong>Core Capabilities:</strong> Ingestion, Multi-Factor Screening, RAG Analysis of Earnings Calls, LangGraph Specialist Agents, Decision Synthesis, Performance Auditing, and Charting.</p>
+
+    <div class="highlight">
+        <strong>Executive Summary:</strong> AlphaLens is an institutional-grade, multi-agent financial screening and research platform designed to analyze, score, and rank Indian equities (specifically benchmarked against Nifty 50 and custom watchlists). The system operates in two distinct phases: 
+        <ol>
+            <li><strong>Phase 1 (Prefilter):</strong> A high-throughput, multi-factor quantitative screening pipeline that ranks stocks across five pillars (Growth, Quality, Valuation, Momentum, Health) using sector-relative and universe-wide percentile scoring.</li>
+            <li><strong>Phase 2 (Agentic Research):</strong> A LangGraph-orchestrated network of 4 specialist AI agents (Fundamentals, Sector, Sentiment, Valuation) that ingest quantitative financials and qualitative earnings call transcripts (via pgvector RAG) to output a synthesized institutional thesis, fair value targets, and active recommendations.</li>
+        </ol>
+    </div>
+
+    <h2>1. System Architecture & Technology Stack</h2>
+    <p>The application is split into a modern decoupled architecture consisting of a Python FastAPI backend and a React (TypeScript) frontend:</p>
+    
+    <div class="code-block">
++-----------------------------------------------------------------------------------+
+|                                  React Frontend                                   |
+|   (Dashboard, Universe Screener, Real-Time AI Agent Runner, Charts, Predictions)  |
++-----------------------------------------------------------------------------------+
+                                         |
+                                         | REST API requests (Port 8000)
+                                         v
++-----------------------------------------------------------------------------------+
+|                                  FastAPI Backend                                  |
+|   (Endpoints: /health, /top, /view/{ticker}, /synthesize/{ticker}, /prefilter)     |
++-----------------------------------------------------------------------------------+
+       |                                   |                              |
+       | Read/Write DB                     | Embeddings (Voyage-3)        | Queue Tasks (Optional)
+       v                                   v                              v
++-----------------------+        +-------------------+          +-------------------+
+|     Supabase DB       |        | Voyage AI API     |          |   Redis Broker    |
+| (PostgreSQL + vector) |        +-------------------+          +-------------------+
++-----------------------+                                                 |
+                                                                          v
+                                                                +-------------------+
+                                                                |   Celery Worker   |
+                                                                | (Background runs) |
+                                                                +-------------------+
+    </div>
+
+    <ul>
+        <li><strong>Frontend Framework:</strong> React (Vite, TypeScript, TailwindCSS for visuals, responsive grid layouts).</li>
+        <li><strong>Backend Engine:</strong> FastAPI (Python 3.10+, Uvicorn server, SQLAlchemy ORM).</li>
+        <li><strong>Database Layer:</strong> Supabase PostgreSQL with the <code>pgvector</code> extension for high-performance Vector embeddings storage.</li>
+        <li><strong>LLM & Embeddings Gateway:</strong> OpenRouter/Anthropic API (leveraging Claude & Llama-3.3 models) for specialist agents, and Voyage AI (Voyage-3 model) generating 1024-dimensional semantic vectors.</li>
+        <li><strong>Background Task Scheduler:</strong> Celery with Redis broker (with a fully decoupled fallback to synchronous execution when local Redis is offline).</li>
+    </ul>
+
+    <h2>2. Database Entity-Relationship (ER) Schema</h2>
+    <p>The system stores financial metrics, earnings call chunks, run tracking logs, and model evaluations in a relational database. Below is the description of the structured tables:</p>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Table Name</th>
+                <th>Primary / Foreign Keys</th>
+                <th>Key Columns & Data Types</th>
+                <th>Functional Purpose</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><strong>stocks</strong></td>
+                <td>PK: <code>id</code></td>
+                <td><code>ticker</code> (String), <code>name</code> (String), <code>sector</code> (String), <code>market_cap</code> (Float), <code>isin</code> (String), <code>is_active</code> (Boolean)</td>
+                <td>Stores the core directory of tracked equities. All financial models, chunks, and reports map to this.</td>
+            </tr>
+            <tr>
+                <td><strong>financial_models</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>stock_id</code></td>
+                <td><code>period</code> (String), <code>data</code> (JSON), <code>updated_at</code> (DateTime)</td>
+                <td>Stores multi-year balance sheets, P&L statements, cash flows, and key valuation ratios.</td>
+            </tr>
+            <tr>
+                <td><strong>documents</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>stock_id</code></td>
+                <td><code>doc_type</code> (String), <code>date</code> (DateTime), <code>quarter</code> (String), <code>source_url</code> (Text)</td>
+                <td>Logs earnings call transcripts, annual reports, and investor presentation files.</td>
+            </tr>
+            <tr>
+                <td><strong>document_chunks</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>document_id</code></td>
+                <td><code>content</code> (Text), <code>embedding</code> (Vector(1024)), <code>meta_data</code> (JSON)</td>
+                <td>Stores the segmented text of transcripts. The 1024-dimension embedding enables semantic RAG queries.</td>
+            </tr>
+            <tr>
+                <td><strong>analysis_runs</strong></td>
+                <td>PK: <code>id</code></td>
+                <td><code>timestamp</code> (DateTime), <code>status</code> (String), <code>total_stocks</code> (Integer), <code>processed_count</code> (Integer), <code>run_type</code> (String)</td>
+                <td>Tracks execution status of the ingestion and prefiltering jobs (e.g. started, completed, failed).</td>
+            </tr>
+            <tr>
+                <td><strong>stock_analysis</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>stock_id</code>, <code>run_id</code></td>
+                <td><code>composite_score</code>, <code>growth_score</code>, <code>durability_score</code>, <code>valuation_score</code>, <code>technical_score</code>, <code>sector_score</code> (Floats), <code>thesis_paragraph</code> (Text), <code>key_risks</code> (JSON), <code>key_catalysts</code> (JSON), <code>target_prices</code> (JSON), <code>recommendation</code> (String), <code>tier_reached</code> (Integer)</td>
+                <td>Saves the scored results of both the Phase 1 quantitative screening and the Phase 2 AI Agentic synthesis.</td>
+            </tr>
+            <tr>
+                <td><strong>evidence_registry</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>analysis_id</code>, <code>source_doc_id</code></td>
+                <td><code>quote</code> (Text), <code>pillar</code> (String)</td>
+                <td>Maintains references to exact lines/quotes from concalls to back up the AI agent's sentiment claims.</td>
+            </tr>
+            <tr>
+                <td><strong>prediction_tracking</strong></td>
+                <td>PK: <code>id</code><br>FK: <code>stock_id</code>, <code>analysis_id</code></td>
+                <td><code>predicted_price</code> (Float), <code>actual_price</code> (Float), <code>error_margin</code> (Float), <code>evaluated_at</code> (DateTime)</td>
+                <td>Audits the system's performance. Tracks error margins of the AI bull/bear targets against real market movements.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>3. Phase 1: Multi-Factor Quantitative Screening (Prefilter)</h2>
+    <p>To identify high-potential stocks before running expensive LLM operations, Phase 1 scores the entire universe across five distinct financial vectors, using a blend of global and sector-relative percentiles:</p>
+    
+    <ul>
+        <li><strong>Growth (Weight: 25%):</strong> Evaluates revenue CAGR (2-yr, 45% weight), PAT CAGR (2-yr, 35% weight), and forward revenue CAGR (20% weight).</li>
+        <li><strong>Quality (Weight: 25% - Sector-Relative):</strong> Evaluates ROIC (50% weight), ROE (30% weight), and forward EBITDA margins (20% weight). Comparing these within specific sectors ensures asset-heavy companies aren't penalized against capital-light software companies.</li>
+        <li><strong>Valuation (Weight: 20%):</strong> Evaluates consensus upside target (50% weight), forward PE multiple (30% weight, lower is better), and forward EV/EBITDA multiple (20% weight, lower is better). PE and EV/EBITDA are sector-relative.</li>
+        <li><strong>Momentum (Weight: 15%):</strong> Evaluates 3-month and 6-month historical share price performance.</li>
+        <li><strong>Financial Health (Weight: 15%):</strong> Evaluates net leverage (inverse ranked, lower leverage gets a higher score, 50% weight), promoter shareholding (30% weight), and asset turnover (20% weight, sector-relative).</li>
+    </ul>
+
+    <h3>Dynamic Cutoffs & Tiers</h3>
+    <p>Using the composite score calculated from the weighted average of the five pillars, stocks are dynamically grouped into tiers based on universe quantiles:</p>
+    <div class="code-block">
+- Tier 1 Cutoff: >= 75th Percentile (minimum score of 55.0)
+- Tier 2 Cutoff: >= 50th Percentile (minimum score of 48.0)
+- Tier 3 Cutoff: >= 25th Percentile (minimum score of 40.0)
+    </div>
+
+    <h3>Rule-Based Recommendation Mapping</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Recommendation Code</th>
+                <th>Logic Condition</th>
+                <th>Operational Meaning</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span class="badge badge-buy">BUY</span></td>
+                <td><code>Composite Score >= 68</code> AND <code>Growth Score >= 55</code> AND <code>Quality Score >= 55</code></td>
+                <td>Outstanding financial setup. Directly flagged for priority purchase and AI deep dive.</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-hold">PASS_TIER_1</span></td>
+                <td><code>Composite Score >= Tier 1 Cutoff</code></td>
+                <td>Top-quartile performer. Passes threshold for Phase 2 Agentic Analysis.</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-hold">PASS_TIER_2</span></td>
+                <td><code>Composite Score >= Tier 2 Cutoff</code></td>
+                <td>Median performer. Placed on watchlist.</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-hold">PASS_TIER_3</span></td>
+                <td><code>Composite Score >= Tier 3 Cutoff</code></td>
+                <td>Below average but above baseline. Placed on lower watchlist.</td>
+            </tr>
+            <tr>
+                <td><span class="badge badge-avoid">AVOID</span></td>
+                <td><code>Composite Score &lt; 38</code></td>
+                <td>High risk of capital erosion. Poor growth/leverage profiles.</td>
+            </tr>
+        </tbody>
+    </table>
+
+    <h2>4. Phase 2: LangGraph Multi-Agent Research System</h2>
+    <p>Stocks that qualify as Tier 1 are passed to a specialist multi-agent network orchestrated using LangGraph. This network divides research labor among specialized AI personas before fusing their outputs into a final institutional-grade thesis:</p>
+
+    <div class="code-block">
+                     +----------------------------+
+                     |         START Node         |
+                     +----------------------------+
+                                   |
+         +-------------------------+-------------------------+
+         | (Sequential / Parallel Routing based on API Key)  |
+         v                                                   v
++-------------------------+                         +-------------------------+
+|  Agent A: Fundamentals  |                         |    Agent B: Sector      |
+|  - Growth & Balance     |                         |  - Industry KPIs &      |
+|    Sheet analysis       |                         |    Competitors          |
++-------------------------+                         +-------------------------+
+         |                                                   |
+         v                                                   v
++-------------------------+                         +-------------------------+
+|   Agent C: Sentiment    |                         |   Agent D: Valuation    |
+|  - pgvector RAG on      |                         |  - Target Prices &      |
+|    Concalls             |                         |    Risk Audits          |
++-------------------------+                         +-------------------------+
+         |                                                   |
+         +-------------------------+-------------------------+
+                                   v
+                     +----------------------------+
+                     |      Synthesis Agent       |
+                     |  - Combines agent scores   |
+                     |  - Caps BUY at HOLD if     |
+                     |    subscores fall &lt; 35     |
+                     +----------------------------+
+                                   |
+                                   v
+                              [END Node]
+    </div>
+
+    <h3>The Specialized Agents</h3>
+    <ol>
+        <li>
+            <strong>Agent A: Fundamentals Analyst</strong>
+            <p>Reviews return ratios, net leverage, promoter holding levels, and 2-year CAGRs. Scores <em>Growth</em>, <em>Durability (Quality)</em>, and <em>Management Quality</em> pillars. Alerts on balance sheet leverage stress (Net Debt-to-Equity > 3x).</p>
+        </li>
+        <li>
+            <strong>Agent B: Sector Specialist</strong>
+            <p>Reads dynamic industry-specific templates to evaluate sectors using native metrics:</p>
+            <ul>
+                <li><em>BFSI:</em> Net Interest Margins (NIM), NPAs, Provision Coverage Ratio (PCR), and CET-1 Capital Adequacy.</li>
+                <li><em>IT / Software:</em> Constant Currency (CC) growth, deal pipeline (TCV), attrition rates, and GenAI commercialization.</li>
+                <li><em>Healthcare / Pharma:</em> USFDA warnings/audits, generic vs. export revenue splits, ANDA approval pipeline.</li>
+                <li><em>FMCG / Retail:</em> Volume vs. value growth, raw materials volatility, quick-commerce expansion.</li>
+                <li><em>Industrials / Manufacturing:</em> Capacity utilization rates, commodity margins, Capex gestation schedules.</li>
+            </ul>
+        </li>
+        <li>
+            <strong>Agent C: Management Sentiment (RAG)</strong>
+            <p>Queries <code>pgvector</code> using a semantic query seeking corporate guidance shifts, tone warnings, and concall red flags. Extracts direct verbatim quotes to prove sentiment claims.</p>
+        </li>
+        <li>
+            <strong>Agent D: Valuation &amp; Risk Auditor</strong>
+            <p>Performs multiple-based calculations to set strict Bear, Base, and Bull targets (anchored to current price), and audits liquidity indicators (cash conversion cycles and free float).</p>
+        </li>
+    </ol>
+
+    <h3>Decision Synthesis & Override Logic</h3>
+    <p>The Synthesis Agent aggregates scores. It calculates a unified <strong>Composite Score</strong> using institutional weights:</p>
+    <div class="code-block">
+Composite Score = (Growth * 0.30) + (Durability * 0.20) + (Management Quality * 0.20) 
+                 + (Sentiment * 0.10) + (Valuation * 0.10) + (Technical Score * 0.10)
+    </div>
+    
+    <div class="highlight" style="border-left-color: #dc2626; background-color: #fef2f2;">
+        <strong>Safety Override Capping:</strong> To ensure high-risk equities are not recommended, if <em>any</em> of the individual specialist scores (Growth, Durability, Management Quality, Sentiment, Valuation, Technical) fall below <strong>35</strong>, the final recommendation is immediately capped at <strong>HOLD</strong>, overriding any LLM-proposed <strong>BUY</strong>.
+    </div>
+
+    <h2>5. RAG (Retrieval-Augmented Generation) Architecture</h2>
+    <p>AlphaLens integrates RAG to extract qualitative insights from earnings transcripts:</p>
+    <ul>
+        <li><strong>Embedding Generation:</strong> High-density Voyage AI (Voyage-3) model generating 1024-dimensional vector embeddings of partitioned concall texts.</li>
+        <li><strong>Storage:</strong> Supabase PostgreSQL with <code>pgvector</code> column format using cosine distance indexes.</li>
+        <li><strong>Query Execution:</strong> A specialized semantic query: <code>"{ticker} earnings call management sentiment guidance revenue margin trajectory outlook"</code> is vectorized and compared against the <code>document_chunks</code> table.</li>
+        <li><strong>Resilience Fallback:</strong> If the vector search fails, the system executes an automatic chronological fallback to extract the latest 4 transcripts for analysis, preventing LLM failures.</li>
+    </ul>
+
+    <h2>6. Advanced Multi-Chart & Analytical Workspace</h2>
+    <p>AlphaLens features a highly sophisticated financial charting and analysis terminal built directly into the React interface. This workspace allows analysts to perform rapid visual audits of stock price movements and corporate financial trends side-by-side:</p>
+
+    <ul>
+        <li>
+            <strong>TradingView Lightweight Charts Integration:</strong> High-performance canvas-based charting that handles thousands of historical data points with hardware acceleration, providing smooth panning and zoom capabilities.
+        </li>
+        <li>
+            <strong>Flexible Layout Grid Modes:</strong>
+            <ul>
+                <li><em>Single View:</em> Maximizes a single slot for deep analytical work on a selected ticker.</li>
+                <li><em>Split (Dual) View:</em> Divides the viewport into 2 vertical charts for comparative analysis.</li>
+                <li><em>Quad View:</em> Renders a 4-pane grid displaying four different tickers simultaneously.</li>
+                <li><em>All View:</em> Dynamically loads and renders independent charts for every stock currently passing the active sidebar filters.</li>
+            </ul>
+        </li>
+        <li>
+            <strong>Multi-Style Chart Support:</strong> Users can switch on-the-fly between standard Japanese Candlesticks, Line charts, Area charts (with smooth gradient fades), and trend-smoothed Heikin Ashi candles.
+        </li>
+        <li>
+            <strong>Timeframe & Period Mapping:</strong> The terminal interfaces with yfinance endpoints, mapping selections to ideal database/API granularities:
+            <ul>
+                <li><em>Intraday / Short-term (6M, 1Y, 2Y):</em> Renders daily candle intervals (1d).</li>
+                <li><em>Medium-term (3Y, 5Y):</em> Aggregates and displays weekly candles (1wk).</li>
+                <li><em>Long-term (10Y, Max):</em> Groups price movements into monthly candles (1mo).</li>
+            </ul>
+        </li>
+        <li>
+            <strong>Real-Time HUD & Interactive Tooltips:</strong> A floating Heads-Up Display (HUD) overlay shows real-time Open, High, Low, Close, and Volume (OHLCV) values, along with absolute and percentage price changes, updating dynamically as the user hovers over the chart.
+        </li>
+        <li>
+            <strong>Fullscreen Presenter Mode:</strong> Multiple stocks can be selected using checkboxes in the sidebar to launch a distraction-free, full-screen grid presenter mode.
+        </li>
+        <li>
+            <strong>Universal Filtering Sidebar:</strong> Sidebar controls filter the chartable universe by name/ticker search, sector category, and customizable Market Cap ranges (in Rupees Crores).
+        </li>
+    </ul>
+
+    <h2>7. Interactive React Frontend Interface</h2>
+    <p>The React web application provides an intuitive dashboard for analyzing data:</p>
+    
+    <ol>
+        <li><strong>Dashboard View:</strong> Displays visual gauges for the composite score, detailed progress reports from the four agents, final investment thesis, target prices, and evidence quotes.</li>
+        <li><strong>Universe Screener:</strong> Interactive grid displaying all stocks in the database, complete with search, sector filters, tier classifications, and color-coded scores.</li>
+        <li><strong>Real-Time AI Analyze View:</strong> Initiates LangGraph agent execution in real-time, displaying a live terminal log as each specialist finishes.</li>
+        <li><strong>Pipeline View:</strong> A management control center to trigger Database Syncs, run Multi-Factor screens, and monitor background queue states.</li>
+        <li><strong>Charts View:</strong> Integrates a Candlestick stock price chart alongside an interactive 4-period financial metrics chart (FY23, FY24, FY25, TTM) for comparing Revenue, EBITDA, and PAT.</li>
+        <li><strong>Predictions Audit View:</strong> Computes the accuracy of past recommendation targets against real-time actual prices to track model drift.</li>
+    </ol>
+
+    <h2>8. Setup & Run Instructions</h2>
+    <p>To run the system locally, execute the following commands:</p>
+
+    <h3>Prerequisites & Environment</h3>
+    <p>Create a <code>.env</code> file in the project root with the following keys:</p>
+    <div class="code-block">
+DATABASE_URL=postgresql+psycopg2://postgres.[REF]:[PASS]@[HOST]:6543/postgres?sslmode=require
+OPENROUTER_API_KEY=your_key_here
+VOYAGE_API_KEY=your_key_here
+    </div>
+
+    <h3>Initialize & Run Backend</h3>
+    <div class="code-block">
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Verify database connection
+python -m app.core.check_db
+
+# Initialize database schema and tables
+python -m app.core.init_db
+
+# Run FastAPI backend (starts on http://127.0.0.1:8000)
+python -m uvicorn app.main:app --reload
+    </div>
+
+    <h3>Run Frontend Dev Server</h3>
+    <div class="code-block">
+# Navigate to frontend folder
+cd frontend
+
+# Install package dependencies
+npm install
+
+# Run the local Vite dev server (starts on http://localhost:5173)
+npm run dev
+    </div>
+
+    <div class="footer">
+        AlphaLens Multi-Agent Equity Research & Recommendation System &copy; 2026. All Rights Reserved.
+    </div>
+
+</body>
+</html>

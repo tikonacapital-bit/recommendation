@@ -21,6 +21,8 @@ export interface StockAnalysis {
   confidence_score: number | null;
   agent_outputs: Record<string, unknown>;
   created_at: string;
+  previous_tier?: number | null;
+  previous_composite_score?: number | null;
   id?: number;
 }
 

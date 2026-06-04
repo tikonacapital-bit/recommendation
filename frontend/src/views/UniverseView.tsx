@@ -118,6 +118,19 @@ function StockCard({
           <span className="text-[10px] text-slate-700 font-mono shrink-0">#{item.rank_in_universe ?? rank}</span>
         </div>
 
+        {/* Promotion Badge */}
+        {item.previous_tier === 2 && item.tier_reached === 1 && (
+          <div className="px-2 py-0.5 rounded bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 border border-emerald-500/30 text-[9px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 w-max">
+            <span>Tier 2 → 1</span>
+            <span className="text-[11px] leading-none">↗</span>
+            {item.previous_composite_score != null && (
+              <span className="text-slate-500 font-mono font-normal">
+                ({item.previous_composite_score.toFixed(0)} → {item.composite_score?.toFixed(0)})
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Score sparkline bars */}
         {bars.length > 0 && (
           <div className="grid grid-cols-4 gap-1">
@@ -202,19 +215,21 @@ function Pagination({ page, total, pageSize, onChange }: {
 // ── Main view ─────────────────────────────────────────────────────────────────
 type SortKey = 'rank' | 'composite' | 'growth' | 'durability' | 'valuation' | 'technical';
 type ViewMode = 'table' | 'cards';
-type TierFilter = 'all' | '1' | '2' | '3' | 'none';
+type TierFilter = 'all' | '1' | '2' | '3' | 'promoted' | 'none';
 
 const TIER_TABS: { id: TierFilter; label: string; short: string; color: string; glow: string }[] = [
   { id: 'all',  label: 'All Stocks', short: 'All',    color: 'text-slate-300 border-slate-500/40 bg-slate-500/10',   glow: '' },
   { id: '1',    label: 'Tier 1',     short: 'Tier 1', color: 'text-green-400  border-green-500/40  bg-green-500/10',  glow: 'shadow-[0_0_12px_rgba(34,197,94,0.2)]' },
   { id: '2',    label: 'Tier 2',     short: 'Tier 2', color: 'text-indigo-400 border-indigo-500/40 bg-indigo-500/10', glow: 'shadow-[0_0_12px_rgba(99,102,241,0.2)]' },
   { id: '3',    label: 'Tier 3',     short: 'Tier 3', color: 'text-amber-400  border-amber-500/40  bg-amber-500/10',  glow: 'shadow-[0_0_12px_rgba(245,158,11,0.2)]' },
+  { id: 'promoted', label: 'Tier 2 → 1', short: 'Tier 2→1', color: 'text-pink-400 border-pink-500/40 bg-pink-500/10', glow: 'shadow-[0_0_12px_rgba(244,63,94,0.2)]' },
   { id: 'none', label: 'Unranked',   short: 'Unranked',color: 'text-slate-500 border-slate-700/40  bg-slate-700/10',  glow: '' },
 ];
 
 export default function UniverseView({ onSelectTicker }: Props) {
   const { toast } = useToast();
   const [data, setData] = useState<StockAnalysis[]>([]);
+  const [promotedData, setPromotedData] = useState<StockAnalysis[]>([]);
   const [loading, setLoading] = useState(false);
   const [sectors, setSectors] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -263,8 +278,12 @@ export default function UniverseView({ onSelectTicker }: Props) {
       const params = new URLSearchParams({ limit: '1000' });
       if (s) params.set('sector', s);
       if (q) params.set('q', q);
-      const d = await api<TopResponse>(`/top?${params}`);
-      setData(d.results);
+      const [d, p] = await Promise.all([
+        api<TopResponse>(`/top?${params}`),
+        api<TopResponse>('/universe/promoted')
+      ]);
+      setData(d.results || []);
+      setPromotedData(p.results || []);
     } catch (e) {
       toast((e as Error).message, 'error');
     } finally {
@@ -280,16 +299,34 @@ export default function UniverseView({ onSelectTicker }: Props) {
     '1':  data.filter(d => d.tier_reached === 1).length,
     '2':  data.filter(d => d.tier_reached === 2).length,
     '3':  data.filter(d => d.tier_reached === 3).length,
+    promoted: promotedData.length,
     none: data.filter(d => d.tier_reached == null).length,
-  }), [data]);
+  }), [data, promotedData]);
 
   // Tier filter + sort
   const sorted = useMemo(() => {
-    const tierFiltered = tierFilter === 'all'
-      ? data
-      : tierFilter === 'none'
-        ? data.filter(i => i.tier_reached == null)
-        : data.filter(i => i.tier_reached === Number(tierFilter));
+    let tierFiltered = data;
+    if (tierFilter === 'none') {
+      tierFiltered = data.filter(i => i.tier_reached == null);
+    } else if (tierFilter === 'promoted') {
+      tierFiltered = promotedData;
+    } else if (tierFilter !== 'all') {
+      tierFiltered = data.filter(i => i.tier_reached === Number(tierFilter));
+    }
+
+    // Apply client-side filters for promoted tab
+    if (tierFilter === 'promoted') {
+      if (sector) {
+        tierFiltered = tierFiltered.filter(i => i.sector?.toLowerCase().includes(sector.toLowerCase()));
+      }
+      if (search) {
+        const q = search.toLowerCase();
+        tierFiltered = tierFiltered.filter(i => 
+          (i.ticker && i.ticker.toLowerCase().includes(q)) || 
+          (i.name && i.name.toLowerCase().includes(q))
+        );
+      }
+    }
 
     const keyMap: Record<SortKey, (i: StockAnalysis) => number> = {
       rank:       i => i.rank_in_universe ?? 9999,
@@ -303,7 +340,7 @@ export default function UniverseView({ onSelectTicker }: Props) {
       const diff = keyMap[sortKey](a) - keyMap[sortKey](b);
       return sortAsc ? diff : -diff;
     });
-  }, [data, tierFilter, sortKey, sortAsc]);
+  }, [data, promotedData, tierFilter, sortKey, sortAsc, sector, search]);
 
   const paginated = useMemo(
     () => sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -582,9 +619,16 @@ export default function UniverseView({ onSelectTicker }: Props) {
                         </td>
                         {/* Composite score — featured with mini ring */}
                         <td className="px-3 py-2.5 text-right">
-                          <span className="font-black font-mono text-sm" style={{ color: scoreCol }}>
-                            {fmt(item.composite_score)}
-                          </span>
+                          <div className="flex flex-col items-end">
+                            <span className="font-black font-mono text-sm" style={{ color: scoreCol }}>
+                              {fmt(item.composite_score)}
+                            </span>
+                            {item.previous_composite_score != null && (
+                              <span className="text-[9px] font-mono text-slate-500 leading-tight">
+                                (was {fmt(item.previous_composite_score)})
+                              </span>
+                            )}
+                          </div>
                         </td>
                         {/* Sub-scores as mini bars */}
                         <td className="px-3 py-2.5"><MiniBar value={item.growth_score} /></td>
@@ -596,9 +640,15 @@ export default function UniverseView({ onSelectTicker }: Props) {
                         </td>
                         {/* Rec badge */}
                         <td className="px-3 py-2.5 text-center">
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide ${recStyle}`}>
-                            {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec}
-                          </span>
+                          {item.previous_tier === 2 && item.tier_reached === 1 ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 text-emerald-400 border-emerald-500/30">
+                              Tier 2 → 1 ↗
+                            </span>
+                          ) : (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold uppercase tracking-wide ${recStyle}`}>
+                              {rec === 'PASS_TIER_1' ? 'Tier 1' : rec === 'PASS_TIER_2' ? 'Tier 2' : rec === 'PASS_TIER_3' ? 'Tier 3' : rec === 'RANK_ONLY' ? 'Rank' : rec}
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
