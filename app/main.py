@@ -12,7 +12,7 @@ from app.schemas import HealthResponse, RefreshResponse, RunResponse, StockAnaly
 from app.models.models import Stock, StockAnalysis
 from app.services.llm_synthesis import LLMConfigError, LLMResponseError, llm_status, synthesize_latest_analysis
 from app.services.prefilter import run_prefilter
-from app.tasks import refresh_tickers, run_prefilter_task, run_agent_pipeline_task, run_universe_synthesis_task
+from app.tasks import refresh_tickers, run_prefilter_task, run_agent_pipeline_task, run_universe_synthesis_task, scrape_screener_all_task
 
 app = FastAPI(title="Multi-Agent Equity Research System", version="0.1.0")
 app.add_middleware(
@@ -80,6 +80,11 @@ def _analysis_to_response(
         created_at=analysis.created_at,
         previous_tier=previous_tier,
         previous_composite_score=previous_composite_score,
+        broad_sector=stock.broad_sector,
+        screener_sector=stock.screener_sector,
+        broad_industry=stock.broad_industry,
+        industry=stock.industry,
+        benchmarks=stock.benchmarks or [],
     )
 
 
@@ -108,9 +113,10 @@ def llm_health() -> TaskResponse:
 @app.get("/top", response_model=TopResponse)
 @app.get("/views/top", response_model=TopResponse)
 def top(
-    limit: int = Query(default=10, ge=1, le=1000),
+    limit: int = Query(default=500, ge=1, le=2000),
     sector: str | None = Query(default=None, description="Filter by sector (partial match)"),
     q: str | None = Query(default=None, description="Search by ticker or company name"),
+    benchmark: str | None = Query(default=None, description="Filter by benchmark index membership"),
     db: Session = Depends(get_db),
 ) -> TopResponse:
     latest_per_stock = (
@@ -128,6 +134,13 @@ def top(
     if q:
         query = query.filter(
             or_(Stock.ticker.ilike(f"%{q}%"), Stock.name.ilike(f"%{q}%"))
+        )
+    if benchmark:
+        # Filter stocks whose JSON benchmarks array contains the requested index name
+        import json
+        benchmark_json = json.dumps([benchmark])
+        query = query.filter(
+            text(f"stocks.benchmarks::jsonb @> '{benchmark_json}'::jsonb")
         )
     analyses = (
         query
@@ -310,6 +323,57 @@ def refresh_ticker(ticker: str) -> RefreshResponse:
         ticker=normalized_ticker,
         message="Ingestion and Tier 1 prefilter refresh completed inline because Celery is not installed.",
     )
+
+
+@app.post("/stocks/scrape-screener", response_model=TaskResponse)
+def scrape_screener(
+    async_task: bool = Query(default=False, description="Queue the scraping in Celery instead of running inline."),
+    db: Session = Depends(get_db)
+) -> TaskResponse:
+    if async_task and scrape_screener_all_task is not None:
+        broker_state, broker_message = broker_status()
+        if broker_state != "ok":
+            return TaskResponse(
+                status="unavailable",
+                message=f"Cannot queue scrape task: {broker_message}",
+            )
+        task = scrape_screener_all_task.delay()
+        return TaskResponse(
+            status="queued",
+            task_id=task.id,
+            message="Screener.in classification scraping task queued in Celery.",
+        )
+    else:
+        from app.services.screener_scrape import scrape_all_stocks_screener_data
+        res = scrape_all_stocks_screener_data(db)
+        return TaskResponse(
+            status="SUCCESS",
+            message=f"Scraped and updated screener data. Success: {res['success']}, Failed: {res['failed']}.",
+        )
+
+
+@app.get("/stocks/screener-filters")
+def get_screener_filters(db: Session = Depends(get_db)) -> dict:
+    broad_sectors = [r[0] for r in db.query(Stock.broad_sector).filter(Stock.broad_sector.isnot(None), Stock.is_active.is_(True)).distinct().order_by(Stock.broad_sector).all() if r[0]]
+    screener_sectors = [r[0] for r in db.query(Stock.screener_sector).filter(Stock.screener_sector.isnot(None), Stock.is_active.is_(True)).distinct().order_by(Stock.screener_sector).all() if r[0]]
+    broad_industries = [r[0] for r in db.query(Stock.broad_industry).filter(Stock.broad_industry.isnot(None), Stock.is_active.is_(True)).distinct().order_by(Stock.broad_industry).all() if r[0]]
+    industries = [r[0] for r in db.query(Stock.industry).filter(Stock.industry.isnot(None), Stock.is_active.is_(True)).distinct().order_by(Stock.industry).all() if r[0]]
+    
+    all_benchmarks_rows = db.query(Stock.benchmarks).filter(Stock.benchmarks.isnot(None), Stock.is_active.is_(True)).all()
+    benchmarks_set = set()
+    for row in all_benchmarks_rows:
+        if isinstance(row[0], list):
+            for benchmark in row[0]:
+                benchmarks_set.add(str(benchmark).strip())
+    benchmarks = sorted(list(benchmarks_set))
+    
+    return {
+        "broad_sectors": broad_sectors,
+        "screener_sectors": screener_sectors,
+        "broad_industries": broad_industries,
+        "industries": industries,
+        "benchmarks": benchmarks
+    }
 
 
 @app.post("/stocks/sync")

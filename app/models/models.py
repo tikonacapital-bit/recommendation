@@ -27,6 +27,11 @@ class Stock(Base):
     market_cap = Column(Float)
     isin = Column(String(20), unique=True)
     is_active = Column(Boolean, default=True)
+    broad_sector = Column(String(255))
+    screener_sector = Column(String(255))
+    broad_industry = Column(String(255))
+    industry = Column(String(255))
+    benchmarks = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     financial_models = relationship("FinancialModel", back_populates="stock")
@@ -147,3 +152,25 @@ class PredictionTracking(Base):
     actual_price = Column(Float)
     error_margin = Column(Float)
     evaluated_at = Column(DateTime)
+
+class Watchlist(Base):
+    __tablename__ = "watchlists"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    items = relationship("WatchlistItem", back_populates="watchlist", cascade="all, delete-orphan")
+
+class WatchlistItem(Base):
+    __tablename__ = "watchlist_items"
+    __table_args__ = (
+        UniqueConstraint("watchlist_id", "ticker", name="uq_watchlist_item"),
+    )
+    
+    id = Column(Integer, primary_key=True, index=True)
+    watchlist_id = Column(Integer, ForeignKey("watchlists.id", ondelete="CASCADE"), nullable=False)
+    ticker = Column(String(20), index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    watchlist = relationship("Watchlist", back_populates="items")

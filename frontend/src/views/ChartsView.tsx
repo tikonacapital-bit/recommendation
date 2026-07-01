@@ -2,21 +2,28 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { api, scoreColor } from '../lib/api';
 import type { StockAnalysis, TopResponse } from '../lib/types';
 import { useToast } from '../components/Toast';
+import { PromptDialog, ConfirmDialog } from '../components/Dialogs';
 import { createChart, ColorType, CandlestickSeries, LineSeries, AreaSeries, HistogramSeries } from 'lightweight-charts';
 
 type ChartLayout = 'single' | 'dual' | 'quad' | 'all';
 type Timeframe = '6M' | '1Y' | '2Y' | '3Y' | '5Y' | '10Y' | 'D' | 'W' | 'M';
 type ChartStyle = '1' | '2' | '3' | '8'; // 1=Candles, 2=Line, 3=Area, 8=Heikin Ashi
 
-export default function ChartsView() {
+interface ChartsViewProps {
+  pendingSymbol?: string | null;
+  onPendingSymbolConsumed?: () => void;
+}
+
+export default function ChartsView({ pendingSymbol, onPendingSymbolConsumed }: ChartsViewProps = {}) {
   const { toast } = useToast();
   const [data, setData] = useState<StockAnalysis[]>([]);
   const [loadingUniverse, setLoadingUniverse] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSector, setSelectedSector] = useState<string>('All');
+  const [selectedBenchmark, setSelectedBenchmark] = useState<string>('All');
   const [minMarketCapCr, setMinMarketCapCr] = useState<number | null>(0);
   const [maxMarketCapCr, setMaxMarketCapCr] = useState<number | null>(null);
-  const [activePreset, setActivePreset] = useState<string>('all');
+  const [_activePreset, setActivePreset] = useState<string>('all');
   const [customMin, setCustomMin] = useState<number | null>(null);
   const [customMax, setCustomMax] = useState<number | null>(null);
   const [isMarketCapExpanded, setIsMarketCapExpanded] = useState<boolean>(true);
@@ -29,7 +36,7 @@ export default function ChartsView() {
     setCustomMax(null);
   };
 
-  const handleCustomSubmit = () => {
+  const _handleCustomSubmit = () => {
     if (customMin === null && customMax === null) {
       handlePresetClick('all', 0, null);
       return;
@@ -54,8 +61,96 @@ export default function ChartsView() {
   const [showControls, setShowControls] = useState(true);
 
   // Multi-select Watchlist and Fullscreen Presenter
-  const [selectedTickers, setSelectedTickers] = useState<string[]>([]);
+  interface WatchlistMap {
+    [name: string]: string[];
+  }
+
+  const [watchlists, setWatchlists] = useState<WatchlistMap>(() => {
+    try {
+      const saved = localStorage.getItem('alphalens_watchlists_multi');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Object.keys(parsed).length > 0) return parsed;
+      }
+    } catch (e) {
+      console.error("Failed to parse watchlists:", e);
+    }
+    // Fallback: migrate from single watchlist if exists
+    try {
+      const legacy = localStorage.getItem('alphalens_watchlist');
+      const legacyTickers = legacy ? JSON.parse(legacy) : [];
+      return { 'Default Watchlist': legacyTickers };
+    } catch {
+      return { 'Default Watchlist': [] };
+    }
+  });
+
+  const [activeWatchlistName, setActiveWatchlistName] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('alphalens_active_watchlist');
+      return saved || 'Default Watchlist';
+    } catch {
+      return 'Default Watchlist';
+    }
+  });
+
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
+  const [showCreateWatchlistDialog, setShowCreateWatchlistDialog] = useState(false);
+  const [showDeleteWatchlistDialog, setShowDeleteWatchlistDialog] = useState(false);
   const [isFullscreenPresenterOpen, setIsFullscreenPresenterOpen] = useState(false);
+
+  const selectedTickers = useMemo(() => {
+    return watchlists[activeWatchlistName] || [];
+  }, [watchlists, activeWatchlistName]);
+
+  const setSelectedTickers = (
+    value: string[] | ((prev: string[]) => string[])
+  ) => {
+    setWatchlists(prev => {
+      const currentList = prev[activeWatchlistName] || [];
+      const updatedList = typeof value === 'function' ? value(currentList) : value;
+      return {
+        ...prev,
+        [activeWatchlistName]: updatedList
+      };
+    });
+  };
+
+  useEffect(() => {
+    localStorage.setItem('alphalens_watchlists_multi', JSON.stringify(watchlists));
+  }, [watchlists]);
+
+  useEffect(() => {
+    localStorage.setItem('alphalens_active_watchlist', activeWatchlistName);
+  }, [activeWatchlistName]);
+
+  const handleCreateWatchlistConfirm = (cleanName: string) => {
+    if (watchlists[cleanName]) {
+      toast("A watchlist with that name already exists!", "error");
+      return;
+    }
+    setWatchlists(prev => ({
+      ...prev,
+      [cleanName]: []
+    }));
+    setActiveWatchlistName(cleanName);
+    toast(`Created watchlist "${cleanName}"`, "success");
+    setShowCreateWatchlistDialog(false);
+  };
+
+  const handleDeleteWatchlistConfirm = () => {
+    const remainingNames = Object.keys(watchlists).filter(n => n !== activeWatchlistName);
+    const nextActive = remainingNames[0];
+
+    setWatchlists(prev => {
+      const next = { ...prev };
+      delete next[activeWatchlistName];
+      return next;
+    });
+    setActiveWatchlistName(nextActive);
+    toast(`Deleted watchlist`, "info");
+    setShowDeleteWatchlistDialog(false);
+  };
 
   const handleToggleSelectTicker = (ticker: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -86,10 +181,14 @@ export default function ChartsView() {
   };
 
   // Load the tracked stocks universe for the sidebar
-  const loadUniverse = useCallback(async () => {
+  const loadUniverse = useCallback(async (benchmarkFilter?: string) => {
     setLoadingUniverse(true);
     try {
-      const resp = await api<TopResponse>('/top?limit=150');
+      let url = '/top?limit=2000';
+      if (benchmarkFilter && benchmarkFilter !== 'All') {
+        url += `&benchmark=${encodeURIComponent(benchmarkFilter)}`;
+      }
+      const resp = await api<TopResponse>(url);
       setData(resp.results || []);
 
       // Auto-set the first loaded ticker in Slot 0 if available
@@ -106,11 +205,29 @@ export default function ChartsView() {
     } finally {
       setLoadingUniverse(false);
     }
-  }, [toast]);
+  }, [toast]); // eslint-disable-line
 
+  // Initial load
   useEffect(() => {
     loadUniverse();
-  }, [loadUniverse]);
+  }, []); // eslint-disable-line
+
+  // Re-fetch when benchmark index changes
+  useEffect(() => {
+    loadUniverse(selectedBenchmark);
+  }, [selectedBenchmark]); // eslint-disable-line
+
+  // Load a symbol requested from another view (e.g. Watchlist "Chart" action) into Slot 1
+  useEffect(() => {
+    if (!pendingSymbol) return;
+    setSymbols(prev => {
+      const next = [...prev];
+      next[0] = pendingSymbol;
+      return next;
+    });
+    setActiveSlot(0);
+    onPendingSymbolConsumed?.();
+  }, [pendingSymbol]); // eslint-disable-line
 
   // Convert local ticker format (e.g. TCS.NS) to TradingView symbol (e.g. NSE:TCS)
   const translateTicker = (ticker: string): string => {
@@ -129,6 +246,67 @@ export default function ChartsView() {
     return clean;
   };
 
+  const findStockByTvSymbol = (tvSymbol: string) => {
+    if (!tvSymbol) return null;
+    let cleanTicker = tvSymbol.toUpperCase();
+    if (cleanTicker.includes(':')) {
+      const [_, sym] = cleanTicker.split(':');
+      const exchange = cleanTicker.split(':')[0];
+      const suffix = exchange === 'NSE' ? '.NS' : exchange === 'BSE' ? '.BO' : '';
+      cleanTicker = sym + suffix;
+    } else {
+      return data.find(s => 
+        s.ticker.toUpperCase() === cleanTicker ||
+        s.ticker.toUpperCase().replace('.NS', '').replace('.BO', '') === cleanTicker
+      );
+    }
+    return data.find(s => s.ticker.toUpperCase() === cleanTicker);
+  };
+
+  const _handleTagClick = (tag: string) => {
+    setSelectedBenchmark(tag);
+    loadUniverse(tag);
+    toast(`Showing stocks in index: ${tag}`, 'info');
+  };
+
+  const renderBenchmarkTags = (_benchmarks?: string[] | null | undefined) => {
+    return null;
+  };
+
+  // Logarithmic slider helpers for Market Cap (10 Cr to 100,000 Cr)
+  const sliderToCr = (val: number): number => {
+    if (val === 0) return 0;
+    if (val === 100) return 100000;
+    const minLog = 1; // 10 Cr
+    const maxLog = 5; // 100,000 Cr
+    const logVal = minLog + (val / 100) * (maxLog - minLog);
+    return Math.round(Math.pow(10, logVal));
+  };
+
+  const crToSlider = (cr: number | null): number => {
+    if (!cr) return 0;
+    if (cr >= 100000) return 100;
+    if (cr <= 10) return 0;
+    const minLog = 1;
+    const maxLog = 5;
+    const logVal = Math.log10(cr);
+    return Math.round(((logVal - minLog) / (maxLog - minLog)) * 100);
+  };
+
+  const handleMinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Math.min(Number(e.target.value), (maxMarketCapCr === null ? 100 : crToSlider(maxMarketCapCr)) - 1);
+    setMinMarketCapCr(sliderToCr(val));
+  };
+
+  const handleMaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = Math.max(Number(e.target.value), crToSlider(minMarketCapCr) + 1);
+    if (val === 100) {
+      setMaxMarketCapCr(null);
+    } else {
+      setMaxMarketCapCr(sliderToCr(val));
+    }
+  };
+
   // Extract all distinct sectors dynamically from the tracked universe
   const sectors = useMemo(() => {
     const set = new Set<string>();
@@ -138,9 +316,33 @@ export default function ChartsView() {
     return ['All', ...Array.from(set).sort()];
   }, [data]);
 
+  const [benchmarksOptions, setBenchmarksOptions] = useState<string[]>(['All']);
+
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const filters = await api<{ benchmarks: string[] }>('/stocks/screener-filters');
+        if (filters && filters.benchmarks) {
+          setBenchmarksOptions(['All', ...filters.benchmarks]);
+        }
+      } catch (e) {
+        console.error("Failed to load screener filters:", e);
+      }
+    };
+    fetchFilters();
+  }, []);
+
   // Filtered sidebar tickers based on search, sector, and market cap
+  // (benchmark filtering is done server-side via the /top?benchmark= param)
   const filteredStocks = useMemo(() => {
     return data.filter(stock => {
+      const tvSym = translateTicker(stock.ticker);
+
+      // 0. Watchlist filter
+      if (showWatchlistOnly && !selectedTickers.includes(tvSym)) {
+        return false;
+      }
+
       // 1. Search filter
       const q = searchQuery.toLowerCase();
       const matchesSearch = !q || (
@@ -206,13 +408,56 @@ export default function ChartsView() {
         />
       )}
 
+      {showCreateWatchlistDialog && (
+        <PromptDialog
+          title="Create New Watchlist"
+          placeholder="e.g. High Conviction"
+          confirmLabel="Create"
+          onConfirm={handleCreateWatchlistConfirm}
+          onCancel={() => setShowCreateWatchlistDialog(false)}
+        />
+      )}
+
+      {showDeleteWatchlistDialog && (
+        <ConfirmDialog
+          title="Delete Watchlist"
+          message={`Are you sure you want to delete "${activeWatchlistName}"? This cannot be undone.`}
+          confirmLabel="Delete"
+          danger
+          onConfirm={handleDeleteWatchlistConfirm}
+          onCancel={() => setShowDeleteWatchlistDialog(false)}
+        />
+      )}
+
       {/* ── LEFT SIDEBAR: Stocks Universe List ── */}
       {(layout !== 'all' && layout !== 'quad') && (
         <div className="w-full xl:w-72 bg-white/[0.02] border border-white/[0.07] rounded-2xl flex flex-col shrink-0 overflow-hidden h-full">
           {/* Search & Filter Header */}
           <div className="p-4 border-b border-white/[0.06] shrink-0 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-200">Tracked Universe</h2>
+            <div className="flex items-center justify-between border-b border-white/[0.05] pb-2.5">
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowWatchlistOnly(false)}
+                  className={`text-xs font-bold pb-1 cursor-pointer transition-all border-b-2 ${
+                    !showWatchlistOnly
+                      ? 'text-indigo-400 border-indigo-500'
+                      : 'text-slate-500 border-transparent hover:text-slate-300'
+                  }`}
+                >
+                  Universe
+                </button>
+                <button
+                  onClick={() => setShowWatchlistOnly(true)}
+                  className={`text-xs font-bold pb-1 cursor-pointer transition-all border-b-2 ${
+                    showWatchlistOnly
+                      ? 'text-indigo-400 border-indigo-500'
+                      : 'text-slate-500 border-transparent hover:text-slate-300'
+                  }`}
+                >
+                  Watchlist ({selectedTickers.length})
+                </button>
+              </div>
+              
               <div className="flex items-center gap-2">
                 {filteredStocks.length > 0 && (
                   <button
@@ -220,7 +465,7 @@ export default function ChartsView() {
                     className="text-[9px] text-slate-500 hover:text-indigo-400 transition-colors font-bold uppercase tracking-wide cursor-pointer"
                     title="Toggle selection of all filtered stocks"
                   >
-                    {filteredStocks.every(s => selectedTickers.includes(translateTicker(s.ticker))) ? 'Deselect All' : 'Select All'}
+                    {filteredStocks.every(s => selectedTickers.includes(translateTicker(s.ticker))) ? 'Deselect' : 'Select All'}
                   </button>
                 )}
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono">
@@ -228,6 +473,48 @@ export default function ChartsView() {
                 </span>
               </div>
             </div>
+
+            {showWatchlistOnly && (
+              <div className="flex items-center justify-between gap-2 bg-white/[0.03] border border-white/[0.08] rounded-xl p-2 mt-1">
+                <select
+                  className="flex-1 bg-[#0b0f19] border border-white/[0.08] rounded-lg px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-indigo-500/50 cursor-pointer font-medium"
+                  value={activeWatchlistName}
+                  onChange={e => setActiveWatchlistName(e.target.value)}
+                >
+                  {Object.keys(watchlists).map(name => (
+                    <option key={name} value={name} className="bg-[#0b0f19] text-slate-300">
+                      {name} ({watchlists[name]?.length || 0})
+                    </option>
+                  ))}
+                </select>
+                
+                <button
+                  type="button"
+                  onClick={() => setShowCreateWatchlistDialog(true)}
+                  className="p-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                  title="Create New Watchlist"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                  </svg>
+                </button>
+
+                {Object.keys(watchlists).length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteWatchlistDialog(true)}
+                    className="p-1.5 bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-lg transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+                    title="Delete Current Watchlist"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"></polyline>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="relative">
               <svg
@@ -267,6 +554,22 @@ export default function ChartsView() {
                 </select>
               </div>
 
+              {/* Benchmark Index filter directly below Sector */}
+              <div className="space-y-1">
+                <label className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Benchmark Index</label>
+                <select
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-1.5 text-[11px] text-slate-200 outline-none focus:border-indigo-500/50 cursor-pointer font-medium"
+                  value={selectedBenchmark}
+                  onChange={e => setSelectedBenchmark(e.target.value)}
+                >
+                  {benchmarksOptions.map(ben => (
+                    <option key={ben} value={ben} className="bg-[#0b0f19] text-slate-300">
+                      {ben}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* By Market Cap Custom Selection Widget */}
               <div className="space-y-1.5 border-t border-white/[0.05] pt-3.5">
                 <div 
@@ -288,68 +591,99 @@ export default function ChartsView() {
                 </div>
 
                 {isMarketCapExpanded && (
-                  <div className="bg-white/[0.02] border border-white/[0.07] rounded-xl p-2.5 space-y-1.5">
-                    {[
-                      { id: 'all', label: 'All', min: 0, max: null },
-                      { id: '0-50', label: '0 - 50 Cr', min: 0, max: 50 },
-                      { id: '50-500', label: '50 - 500 Cr', min: 50, max: 500 },
-                      { id: '500-5000', label: '500 - 5,000 Cr', min: 500, max: 5000 },
-                      { id: '5000+', label: '> 5,000 Cr', min: 5000, max: null }
-                    ].map(preset => {
-                      const isSelected = activePreset === preset.id;
-                      return (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => handlePresetClick(preset.id, preset.min, preset.max)}
-                          className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[11px] transition-all text-left cursor-pointer
-                            ${isSelected
-                              ? 'bg-indigo-600/15 text-indigo-400 font-bold'
-                              : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
-                            }`}
-                        >
-                          <span>{preset.label}</span>
-                          {isSelected && (
-                            <svg
-                              width="10"
-                              height="10"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="3.5"
-                              className="text-indigo-400 shrink-0"
-                            >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </button>
-                      );
-                    })}
+                  <div className="bg-white/[0.02] border border-white/[0.07] rounded-xl p-3.5 space-y-4">
+                    <style>{`
+                      .thumb,
+                      .thumb::-webkit-slider-thumb {
+                        -webkit-appearance: none;
+                        -webkit-tap-highlight-color: transparent;
+                      }
+                      .thumb {
+                        pointer-events: none;
+                        position: absolute;
+                        height: 0;
+                        width: 100%;
+                        outline: none;
+                      }
+                      /* For Chrome browsers */
+                      .thumb::-webkit-slider-thumb {
+                        background-color: #ffffff;
+                        border: 2.5px solid #6366f1;
+                        border-radius: 50%;
+                        cursor: pointer;
+                        height: 12px;
+                        width: 12px;
+                        pointer-events: all;
+                        position: relative;
+                      }
+                      /* For Firefox browsers */
+                      .thumb::-moz-range-thumb {
+                        background-color: #ffffff;
+                        border: 2.5px solid #6366f1;
+                        border-radius: 50%;
+                        cursor: pointer;
+                        height: 12px;
+                        width: 12px;
+                        pointer-events: all;
+                        position: relative;
+                      }
+                    `}</style>
 
-                    {/* Custom Inputs Row */}
-                    <div className="flex items-center gap-1.5 pt-2 border-t border-white/[0.04]">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between text-[10px] font-medium text-slate-400">
+                        <span>Market Cap Range:</span>
+                      </div>
+                      <div className="flex justify-between text-[10px] font-mono font-bold text-indigo-400">
+                        <span>{minMarketCapCr ? `₹${minMarketCapCr.toLocaleString()} Cr` : '0 Cr'}</span>
+                        <span>to</span>
+                        <span>{maxMarketCapCr ? `₹${maxMarketCapCr.toLocaleString()} Cr` : 'Unlimited'}</span>
+                      </div>
+                    </div>
+
+                    <div className="relative w-full h-5 mt-1 flex items-center">
                       <input
-                        type="number"
-                        placeholder="Min"
-                        value={customMin === null ? '' : customMin}
-                        onChange={e => setCustomMin(e.target.value === '' ? null : Number(e.target.value))}
-                        className="w-14 bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/40 text-center font-mono focus:ring-1 focus:ring-indigo-500/20"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={crToSlider(minMarketCapCr)}
+                        onChange={handleMinChange}
+                        className="thumb z-30"
+                        style={{ width: '100%' }}
                       />
                       <input
-                        type="number"
-                        placeholder="Max"
-                        value={customMax === null ? '' : customMax}
-                        onChange={e => setCustomMax(e.target.value === '' ? null : Number(e.target.value))}
-                        className="w-14 bg-white/[0.03] border border-white/[0.08] rounded-lg px-2 py-1 text-[10px] text-slate-200 placeholder-slate-600 outline-none focus:border-indigo-500/40 text-center font-mono focus:ring-1 focus:ring-indigo-500/20"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={maxMarketCapCr === null ? 100 : crToSlider(maxMarketCapCr)}
+                        onChange={handleMaxChange}
+                        className="thumb z-40"
+                        style={{ width: '100%' }}
                       />
+
+                      <div className="relative w-full h-1 bg-white/10 rounded-full">
+                        <div
+                          className="absolute h-full bg-indigo-500 rounded-full"
+                          style={{
+                            left: `${crToSlider(minMarketCapCr)}%`,
+                            right: `${100 - (maxMarketCapCr === null ? 100 : crToSlider(maxMarketCapCr))}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Reset Button */}
+                    {(minMarketCapCr !== 0 || maxMarketCapCr !== null) && (
                       <button
                         type="button"
-                        onClick={handleCustomSubmit}
-                        className="flex-1 py-1 bg-white/[0.06] hover:bg-indigo-600 border border-white/[0.08] hover:border-indigo-500 text-slate-300 hover:text-white rounded-lg text-[10px] font-bold transition-all text-center cursor-pointer uppercase tracking-wider font-mono shadow-sm"
+                        onClick={() => {
+                          setMinMarketCapCr(0);
+                          setMaxMarketCapCr(null);
+                        }}
+                        className="w-full py-1 text-center bg-white/[0.03] hover:bg-white/[0.07] text-slate-400 hover:text-slate-200 border border-white/[0.05] rounded-lg text-[10px] font-semibold transition-all cursor-pointer"
                       >
-                        Go
+                        Reset Range
                       </button>
-                    </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -457,8 +791,40 @@ export default function ChartsView() {
                   onSelect={handleSelectStock}
                   activeTvSymbol={symbols[activeSlot]}
                   translateTicker={translateTicker}
+                  selectedTickers={selectedTickers}
+                  onToggleWatchlist={(ticker) => {
+                    const tvSym = translateTicker(ticker);
+                    setSelectedTickers(prev => 
+                      prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                    );
+                  }}
                 />
               </div>
+
+              <div className="h-4 w-px bg-white/10" />
+
+              {/* Watchlist Toggle */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (selectedTickers.length === 0 && !showWatchlistOnly) {
+                    toast('Your watchlist is empty. Check the checkboxes in the sidebar to add companies!', 'info');
+                    return;
+                  }
+                  setShowWatchlistOnly(prev => !prev);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all flex items-center gap-1.5 cursor-pointer
+                  ${showWatchlistOnly
+                    ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_12px_rgba(99,102,241,0.25)]'
+                    : 'bg-white/[0.03] border-white/[0.08] text-slate-400 hover:text-slate-200'
+                  }`}
+                title="Toggle showing only your watchlist tickers"
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill={showWatchlistOnly ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2.5">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+                {showWatchlistOnly ? `Watchlist: ${activeWatchlistName}` : 'Watchlist Only'}
+              </button>
 
               <div className="h-4 w-px bg-white/10" />
 
@@ -617,7 +983,23 @@ export default function ChartsView() {
         <div className="flex-1 flex gap-5 min-h-0">
 
           {/* Main Chart Matrix */}
-          <div className={`flex-1 ${layout !== 'all' ? 'grid' : ''} gap-4 min-h-0 h-full ${getLayoutGridClass()}`}>
+          <style dangerouslySetInnerHTML={{ __html: `
+            .main-charts-scrollbar::-webkit-scrollbar {
+              width: 8px !important;
+            }
+            .main-charts-scrollbar::-webkit-scrollbar-track {
+              background: rgba(255, 255, 255, 0.01) !important;
+              border-radius: 4px;
+            }
+            .main-charts-scrollbar::-webkit-scrollbar-thumb {
+              background: rgba(99, 102, 241, 0.35) !important;
+              border-radius: 4px;
+            }
+            .main-charts-scrollbar::-webkit-scrollbar-thumb:hover {
+              background: rgba(99, 102, 241, 0.6) !important;
+            }
+          `}} />
+          <div className={`flex-1 ${layout !== 'all' ? 'grid' : 'overflow-y-auto main-charts-scrollbar pr-2'} gap-4 min-h-0 h-full ${getLayoutGridClass()}`}>
 
             {layout === 'all' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 gap-6 w-full h-max">
@@ -626,9 +1008,30 @@ export default function ChartsView() {
                   return (
                     <div key={tvSym} className="relative bg-[#0d1420] rounded-2xl overflow-hidden border border-white/[0.06] flex flex-col shrink-0" style={{ minHeight: '450px' }}>
                       <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                        <span className="text-indigo-400">
-                          #{idx + 1}: <span className="text-slate-300">{tvSym}</span>
-                        </span>
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <span className="text-indigo-400">
+                            #{idx + 1}: <span className="text-slate-300">{tvSym}</span>
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-normal truncate max-w-[120px] hidden sm:inline mr-1">
+                            ({stock.name})
+                          </span>
+                          <button
+                            onClick={() => {
+                              const tvSym = translateTicker(stock.ticker);
+                              setSelectedTickers(prev => 
+                                prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                              );
+                            }}
+                            className={`p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer mr-1 flex items-center justify-center shrink-0
+                              ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                            title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                          >
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                            </svg>
+                          </button>
+                          {renderBenchmarkTags(stock.benchmarks)}
+                        </div>
                       </div>
                       <div className="flex-1 w-full relative p-0 flex flex-col">
                         <LazyTradingViewChart
@@ -654,9 +1057,38 @@ export default function ChartsView() {
                 >
                   {/* Slot Header */}
                   <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                    <span className={activeSlot === 0 ? 'text-indigo-400' : 'text-slate-500'}>
-                      Panel 1: <span className="text-slate-300">{symbols[0]}</span>
-                    </span>
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className={activeSlot === 0 ? 'text-indigo-400' : 'text-slate-500'}>
+                        Panel 1: <span className="text-slate-300">{symbols[0]}</span>
+                      </span>
+                      {(() => {
+                        const stock = findStockByTvSymbol(symbols[0]);
+                        if (!stock) return null;
+                        return (
+                          <>
+                            <span className="text-[10px] text-slate-500 font-normal truncate max-w-[120px] hidden sm:inline mr-1">
+                              ({stock.name})
+                            </span>
+                            <button
+                              onClick={() => {
+                                const tvSym = translateTicker(stock.ticker);
+                                setSelectedTickers(prev => 
+                                  prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                                );
+                              }}
+                              className={`p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer mr-1 flex items-center justify-center shrink-0
+                                ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                              title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                            >
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                              </svg>
+                            </button>
+                            {renderBenchmarkTags(stock.benchmarks)}
+                          </>
+                        );
+                      })()}
+                    </div>
                     <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
                   </div>
                   <div className="flex-1 w-full h-full min-h-0 relative">
@@ -680,9 +1112,38 @@ export default function ChartsView() {
                       }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                      <span className={activeSlot === 1 ? 'text-indigo-400' : 'text-slate-500'}>
-                        Panel 2: <span className="text-slate-300">{symbols[1]}</span>
-                      </span>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className={activeSlot === 1 ? 'text-indigo-400' : 'text-slate-500'}>
+                          Panel 2: <span className="text-slate-300">{symbols[1]}</span>
+                        </span>
+                        {(() => {
+                          const stock = findStockByTvSymbol(symbols[1]);
+                          if (!stock) return null;
+                          return (
+                            <>
+                              <span className="text-[10px] text-slate-500 font-normal truncate max-w-[120px] hidden sm:inline mr-1">
+                                ({stock.name})
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const tvSym = translateTicker(stock.ticker);
+                                  setSelectedTickers(prev => 
+                                    prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                                  );
+                                }}
+                                className={`p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer mr-1 flex items-center justify-center shrink-0
+                                  ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                                title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                              </button>
+                              {renderBenchmarkTags(stock.benchmarks)}
+                            </>
+                          );
+                        })()}
+                      </div>
                       {activeSlot === 1 && (
                         <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
                       )}
@@ -709,9 +1170,38 @@ export default function ChartsView() {
                       }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                      <span className={activeSlot === 2 ? 'text-indigo-400' : 'text-slate-500'}>
-                        Panel 3: <span className="text-slate-300">{symbols[2]}</span>
-                      </span>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className={activeSlot === 2 ? 'text-indigo-400' : 'text-slate-500'}>
+                          Panel 3: <span className="text-slate-300">{symbols[2]}</span>
+                        </span>
+                        {(() => {
+                          const stock = findStockByTvSymbol(symbols[2]);
+                          if (!stock) return null;
+                          return (
+                            <>
+                              <span className="text-[10px] text-slate-500 font-normal truncate max-w-[120px] hidden sm:inline mr-1">
+                                ({stock.name})
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const tvSym = translateTicker(stock.ticker);
+                                  setSelectedTickers(prev => 
+                                    prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                                  );
+                                }}
+                                className={`p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer mr-1 flex items-center justify-center shrink-0
+                                  ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                                title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                              </button>
+                              {renderBenchmarkTags(stock.benchmarks)}
+                            </>
+                          );
+                        })()}
+                      </div>
                       {activeSlot === 2 && (
                         <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
                       )}
@@ -738,9 +1228,38 @@ export default function ChartsView() {
                       }`}
                   >
                     <div className="px-4 py-2 bg-white/[0.02] border-b border-white/[0.05] shrink-0 flex items-center justify-between text-xs font-mono font-semibold">
-                      <span className={activeSlot === 3 ? 'text-indigo-400' : 'text-slate-500'}>
-                        Panel 4: <span className="text-slate-300">{symbols[3]}</span>
-                      </span>
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className={activeSlot === 3 ? 'text-indigo-400' : 'text-slate-500'}>
+                          Panel 4: <span className="text-slate-300">{symbols[3]}</span>
+                        </span>
+                        {(() => {
+                          const stock = findStockByTvSymbol(symbols[3]);
+                          if (!stock) return null;
+                          return (
+                            <>
+                              <span className="text-[10px] text-slate-500 font-normal truncate max-w-[120px] hidden sm:inline mr-1">
+                                ({stock.name})
+                              </span>
+                              <button
+                                onClick={() => {
+                                  const tvSym = translateTicker(stock.ticker);
+                                  setSelectedTickers(prev => 
+                                    prev.includes(tvSym) ? prev.filter(t => t !== tvSym) : [...prev, tvSym]
+                                  );
+                                }}
+                                className={`p-1 hover:bg-white/5 rounded-lg transition-colors cursor-pointer mr-1 flex items-center justify-center shrink-0
+                                  ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                                title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                              >
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.5">
+                                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                              </button>
+                              {renderBenchmarkTags(stock.benchmarks)}
+                            </>
+                          );
+                        })()}
+                      </div>
                       {activeSlot === 3 && (
                         <span className="text-[10px] text-indigo-500 font-bold uppercase">Active</span>
                       )}
@@ -1153,9 +1672,11 @@ interface CompanySelectProps {
   onSelect: (stock: StockAnalysis) => void;
   activeTvSymbol: string;
   translateTicker: (t: string) => string;
+  selectedTickers: string[];
+  onToggleWatchlist: (ticker: string) => void;
 }
 
-function CompanySelect({ stocks, onSelect, activeTvSymbol, translateTicker }: CompanySelectProps) {
+function CompanySelect({ stocks, onSelect, activeTvSymbol, translateTicker, selectedTickers, onToggleWatchlist }: CompanySelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
@@ -1238,27 +1759,45 @@ function CompanySelect({ stocks, onSelect, activeTvSymbol, translateTicker }: Co
                 const isSelected = translateTicker(stock.ticker) === activeTvSymbol;
                 const cleanTicker = stock.ticker.replace('.NS', '').replace('.BO', '');
                 return (
-                  <button
+                  <div
                     key={stock.ticker}
-                    type="button"
-                    onClick={() => {
-                      onSelect(stock);
-                      setOpen(false);
-                    }}
-                    className={`w-full text-left px-3.5 py-2 text-[11px] transition-colors flex flex-col gap-0.5 cursor-pointer
+                    className={`w-full text-left px-3.5 py-1.5 text-[11px] transition-colors flex items-center justify-between group/item cursor-pointer
                       ${isSelected
                         ? 'bg-indigo-600/15 text-indigo-400 font-bold border-l-2 border-indigo-500'
                         : 'text-slate-300 hover:bg-white/[0.04] hover:text-slate-100'
                       }`}
                   >
-                    <div className="flex items-center justify-between w-full">
-                      <span className="font-mono text-indigo-400 font-bold">{cleanTicker}</span>
-                      {stock.composite_score != null && (
-                        <span className="text-[10px] text-slate-500 font-mono">Score: {stock.composite_score.toFixed(0)}</span>
-                      )}
+                    <div 
+                      className="flex-1 flex flex-col gap-0.5 min-w-0"
+                      onClick={() => {
+                        onSelect(stock);
+                        setOpen(false);
+                      }}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <span className="font-mono text-indigo-400 font-bold">{cleanTicker}</span>
+                        {stock.composite_score != null && (
+                          <span className="text-[10px] text-slate-500 font-mono">Score: {stock.composite_score.toFixed(0)}</span>
+                        )}
+                      </div>
+                      <span className="text-slate-500 text-[10px] truncate max-w-full">{stock.name || '—'}</span>
                     </div>
-                    <span className="text-slate-500 text-[10px] truncate max-w-full">{stock.name || '—'}</span>
-                  </button>
+                    
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleWatchlist(stock.ticker);
+                      }}
+                      className={`p-1.5 ml-2 hover:bg-white/5 rounded-lg transition-colors cursor-pointer
+                        ${selectedTickers.includes(translateTicker(stock.ticker)) ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}`}
+                      title={selectedTickers.includes(translateTicker(stock.ticker)) ? "Remove from watchlist" : "Add to watchlist"}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill={selectedTickers.includes(translateTicker(stock.ticker)) ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2">
+                        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                      </svg>
+                    </button>
+                  </div>
                 );
               })
             )}

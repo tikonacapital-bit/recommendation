@@ -205,6 +205,15 @@ export default function AnalysisPanel({ item }: { item: StockAnalysis }) {
               <span>· Confidence {(item.confidence_score * 100).toFixed(0)}%</span>
             )}
           </div>
+          {item.benchmarks && item.benchmarks.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-2">
+              {item.benchmarks.map(b => (
+                <span key={b} className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono font-medium">
+                  {b}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

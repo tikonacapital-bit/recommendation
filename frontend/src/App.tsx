@@ -8,9 +8,10 @@ import AnalyzeView from './views/AnalyzeView';
 import PipelineView from './views/PipelineView';
 import PredictionsView from './views/PredictionsView';
 import ChartsView from './views/ChartsView';
+import WatchlistView from './views/WatchlistView';
 import { api } from './lib/api';
 
-type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline' | 'predictions' | 'charts';
+type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline' | 'predictions' | 'charts' | 'watchlist';
 
 type StatusLevel = 'ok' | 'warn' | 'bad' | 'loading';
 
@@ -24,6 +25,7 @@ function AppInner() {
   const [view, setView] = useState<View>('dashboard');
   const [collapsed, setCollapsed] = useState(false);
   const [ticker, setTicker] = useState('');
+  const [chartSymbolRequest, setChartSymbolRequest] = useState<string | null>(null);
   const [taskBanner, setTaskBanner] = useState<string | null>(null);
   const [status, setStatus] = useState<SysStatus>({ db: 'loading', worker: 'loading', llm: 'loading' });
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -239,8 +241,16 @@ function AppInner() {
           <div className={view === 'predictions' ? 'block' : 'hidden'}>
             <PredictionsView />
           </div>
-          <div className={view === 'charts' ? 'block' : 'hidden'}>
-            <ChartsView />
+          <div className={view === 'charts' ? 'block h-[calc(100vh-75px)] min-h-0' : 'hidden'}>
+            <ChartsView pendingSymbol={chartSymbolRequest} onPendingSymbolConsumed={() => setChartSymbolRequest(null)} />
+          </div>
+          <div className={view === 'watchlist' ? 'block' : 'hidden'}>
+            <WatchlistView
+              onOpenChart={(tvSymbol) => {
+                setChartSymbolRequest(tvSymbol);
+                setView('charts');
+              }}
+            />
           </div>
         </main>
       </div>

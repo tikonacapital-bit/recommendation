@@ -118,6 +118,20 @@ function StockCard({
           <span className="text-[10px] text-slate-700 font-mono shrink-0">#{item.rank_in_universe ?? rank}</span>
         </div>
 
+        {/* Benchmarks */}
+        {item.benchmarks && item.benchmarks.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {item.benchmarks.slice(0, 2).map(b => (
+              <span key={b} className="text-[8px] px-1 py-0.2 rounded bg-indigo-500/5 text-indigo-400 border border-indigo-500/10 font-mono">
+                {b}
+              </span>
+            ))}
+            {item.benchmarks.length > 2 && (
+              <span className="text-[8px] px-1 py-0.2 text-slate-500 font-mono">+{item.benchmarks.length - 2}</span>
+            )}
+          </div>
+        )}
+
         {/* Promotion Badge */}
         {item.previous_tier === 2 && item.tier_reached === 1 && (
           <div className="px-2 py-0.5 rounded bg-gradient-to-r from-indigo-500/10 to-emerald-500/10 border border-emerald-500/30 text-[9px] font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5 w-max">
@@ -234,6 +248,7 @@ export default function UniverseView({ onSelectTicker }: Props) {
   const [sectors, setSectors] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [sector, setSector] = useState('');
+  const [benchmark, setBenchmark] = useState('');
   const [tierFilter, setTierFilter] = useState<TierFilter>('all');
   const [page, setPage] = useState(1);
   const [viewMode, setViewMode] = useState<ViewMode>('table');
@@ -303,6 +318,22 @@ export default function UniverseView({ onSelectTicker }: Props) {
     none: data.filter(d => d.tier_reached == null).length,
   }), [data, promotedData]);
 
+  const [benchmarksOptions, setBenchmarksOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    const fetchFilters = async () => {
+      try {
+        const filters = await api<{ benchmarks: string[] }>('/stocks/screener-filters');
+        if (filters && filters.benchmarks) {
+          setBenchmarksOptions(filters.benchmarks);
+        }
+      } catch (e) {
+        console.error("Failed to load screener filters:", e);
+      }
+    };
+    fetchFilters();
+  }, []);
+
   // Tier filter + sort
   const sorted = useMemo(() => {
     let tierFiltered = data;
@@ -328,6 +359,11 @@ export default function UniverseView({ onSelectTicker }: Props) {
       }
     }
 
+    // Apply client-side advanced screener index filter
+    if (benchmark && benchmark !== 'All') {
+      tierFiltered = tierFiltered.filter(i => i.benchmarks && Array.isArray(i.benchmarks) && i.benchmarks.includes(benchmark));
+    }
+
     const keyMap: Record<SortKey, (i: StockAnalysis) => number> = {
       rank:       i => i.rank_in_universe ?? 9999,
       composite:  i => i.composite_score ?? 0,
@@ -340,7 +376,7 @@ export default function UniverseView({ onSelectTicker }: Props) {
       const diff = keyMap[sortKey](a) - keyMap[sortKey](b);
       return sortAsc ? diff : -diff;
     });
-  }, [data, promotedData, tierFilter, sortKey, sortAsc, sector, search]);
+  }, [data, promotedData, tierFilter, sortKey, sortAsc, sector, search, benchmark]);
 
   const paginated = useMemo(
     () => sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -476,8 +512,9 @@ export default function UniverseView({ onSelectTicker }: Props) {
         </div>
       )}
 
+
       {/* ── Filters ── */}
-      <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl p-4">
+      <div className="bg-white/[0.02] border border-white/[0.07] rounded-2xl p-4 space-y-4">
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative flex-1 min-w-[180px]">
             <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -498,6 +535,13 @@ export default function UniverseView({ onSelectTicker }: Props) {
             placeholder="All Sectors"
             options={sectors.map(s => ({ value: s, label: s }))}
           />
+          <DarkSelect
+            className="flex-1 min-w-[160px]"
+            value={benchmark}
+            onChange={val => setBenchmark(val)}
+            placeholder="All Benchmark Indexes"
+            options={benchmarksOptions.map(s => ({ value: s, label: s }))}
+          />
           <button
             onClick={() => loadUniverse(sector, search)}
             className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
@@ -505,7 +549,12 @@ export default function UniverseView({ onSelectTicker }: Props) {
             Filter
           </button>
           <button
-            onClick={() => { setSearch(''); setSector(''); loadUniverse('', ''); }}
+            onClick={() => {
+              setSearch('');
+              setSector('');
+              setBenchmark('');
+              loadUniverse('', '');
+            }}
             className="px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.07] text-slate-400 hover:text-slate-200 text-sm border border-white/[0.07] transition-all"
           >
             Clear

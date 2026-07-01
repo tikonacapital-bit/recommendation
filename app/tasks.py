@@ -121,6 +121,15 @@ def run_universe_synthesis_sync(limit: int = 50) -> dict:
         db.close()
 
 
+def scrape_screener_all_sync() -> dict:
+    from app.services.screener_scrape import scrape_all_stocks_screener_data
+    db = SessionLocal()
+    try:
+        return scrape_all_stocks_screener_data(db)
+    finally:
+        db.close()
+
+
 if celery_app is not None:
 
     @celery_app.task(name="app.tasks.refresh_tickers")
@@ -139,8 +148,13 @@ if celery_app is not None:
     def run_universe_synthesis_task(limit: int = 50) -> dict:
         return run_universe_synthesis_sync(limit)
 
+    @celery_app.task(name="app.tasks.scrape_screener_all_task")
+    def scrape_screener_all_task() -> dict:
+        return scrape_screener_all_sync()
+
 else:
     refresh_tickers = None
     run_prefilter_task = None
     run_agent_pipeline_task = None
     run_universe_synthesis_task = None
+    scrape_screener_all_task = None

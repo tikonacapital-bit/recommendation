@@ -34,6 +34,11 @@ def init_db():
             "ALTER TABLE stock_analysis ADD COLUMN IF NOT EXISTS sector_score DOUBLE PRECISION;",
             "ALTER TABLE stock_analysis ADD COLUMN IF NOT EXISTS agent_outputs JSON;",
             "ALTER TABLE stock_analysis ADD COLUMN IF NOT EXISTS recommendation VARCHAR(20);",
+            "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS broad_sector VARCHAR(255);",
+            "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS screener_sector VARCHAR(255);",
+            "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS broad_industry VARCHAR(255);",
+            "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS industry VARCHAR(255);",
+            "ALTER TABLE stocks ADD COLUMN IF NOT EXISTS benchmarks JSON;",
         ]
         with engine.connect() as conn:
             for statement in additive_statements:

@@ -24,6 +24,11 @@ export interface StockAnalysis {
   previous_tier?: number | null;
   previous_composite_score?: number | null;
   id?: number;
+  broad_sector?: string | null;
+  screener_sector?: string | null;
+  broad_industry?: string | null;
+  industry?: string | null;
+  benchmarks?: string[] | null;
 }
 
 export interface TopResponse {

@@ -1,6 +1,6 @@
 import React from 'react';
 
-type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline' | 'predictions' | 'charts';
+type View = 'dashboard' | 'universe' | 'analyze' | 'pipeline' | 'predictions' | 'charts' | 'watchlist';
 
 interface SidebarProps {
   activeView: View;
@@ -80,6 +80,15 @@ const navItems: { id: View; label: string; icon: React.ReactNode }[] = [
         <line x1="18" y1="20" x2="18" y2="8" />
         <line x1="18" y1="6" x2="18" y2="4" />
         <rect x="16" y="6" width="4" height="6" rx="1" fill="currentColor" fillOpacity="0.2" />
+      </svg>
+    ),
+  },
+  {
+    id: 'watchlist',
+    label: 'Watchlist',
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
       </svg>
     ),
   },
