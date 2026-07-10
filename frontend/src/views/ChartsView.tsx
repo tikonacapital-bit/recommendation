@@ -23,18 +23,7 @@ export default function ChartsView({ pendingSymbol, onPendingSymbolConsumed }: C
   const [selectedBenchmark, setSelectedBenchmark] = useState<string>('All');
   const [minMarketCapCr, setMinMarketCapCr] = useState<number | null>(0);
   const [maxMarketCapCr, setMaxMarketCapCr] = useState<number | null>(null);
-  const [_activePreset, setActivePreset] = useState<string>('all');
-  const [customMin, setCustomMin] = useState<number | null>(null);
-  const [customMax, setCustomMax] = useState<number | null>(null);
   const [isMarketCapExpanded, setIsMarketCapExpanded] = useState<boolean>(true);
-
-  const handlePresetClick = (presetId: string, min: number | null, max: number | null) => {
-    setActivePreset(presetId);
-    setMinMarketCapCr(min);
-    setMaxMarketCapCr(max);
-    setCustomMin(null);
-    setCustomMax(null);
-  };
 
   // Multi-chart slot management (max 4 slots for quad view)
   const [symbols, setSymbols] = useState<string[]>([
