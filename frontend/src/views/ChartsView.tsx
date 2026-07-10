@@ -36,16 +36,6 @@ export default function ChartsView({ pendingSymbol, onPendingSymbolConsumed }: C
     setCustomMax(null);
   };
 
-  const _handleCustomSubmit = () => {
-    if (customMin === null && customMax === null) {
-      handlePresetClick('all', 0, null);
-      return;
-    }
-    setActivePreset('custom');
-    setMinMarketCapCr(customMin);
-    setMaxMarketCapCr(customMax);
-  };
-
   // Multi-chart slot management (max 4 slots for quad view)
   const [symbols, setSymbols] = useState<string[]>([
     'NSE:TCS',
@@ -261,12 +251,6 @@ export default function ChartsView({ pendingSymbol, onPendingSymbolConsumed }: C
       );
     }
     return data.find(s => s.ticker.toUpperCase() === cleanTicker);
-  };
-
-  const _handleTagClick = (tag: string) => {
-    setSelectedBenchmark(tag);
-    loadUniverse(tag);
-    toast(`Showing stocks in index: ${tag}`, 'info');
   };
 
   const renderBenchmarkTags = (_benchmarks?: string[] | null | undefined) => {
